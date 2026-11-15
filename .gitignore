@@ -1,0 +1,22 @@
+# Áudio/MIDI: nunca commitar música com copyright
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.m4a
+*.mid
+*.midi
+# Saída do Demucs e saídas locais
+separated/
+out/
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Perfil local do dispositivo
+device.json
