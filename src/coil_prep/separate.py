@@ -7,6 +7,7 @@ from pathlib import Path
 
 STEMS = ("vocals", "other", "bass", "drums")
 MODEL = "htdemucs"
+DEFAULT_STEM = "other"  # melhor na Blue (melodia em sintes); em música cantada teste --stem vocals
 DEFAULT_DIR = Path("separated")  # já está no .gitignore
 
 
@@ -15,7 +16,7 @@ def stem_path(src: Path, stem: str, out_dir: Path) -> Path:
     return out_dir / MODEL / src.stem / f"{stem}.wav"
 
 
-def separate(src: Path, stem: str = "vocals", out_dir: Path = DEFAULT_DIR) -> Path:
+def separate(src: Path, stem: str = DEFAULT_STEM, out_dir: Path = DEFAULT_DIR) -> Path:
     """Devolve o WAV do stem pedido, rodando o Demucs só se ainda não existir em `out_dir`."""
     target = stem_path(src, stem, out_dir)
     if target.exists():

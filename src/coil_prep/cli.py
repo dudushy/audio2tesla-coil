@@ -9,7 +9,7 @@ from .ffmpeg import FfmpegError, decode_mono, prep_file
 from .midi import MIDI_EXTS, RATE, notes_from, overlap_fraction, render, skyline
 from .presets import PRESETS
 from .profile import DEFAULT_PATH, Profile, load_profile, save_profile
-from .separate import DEFAULT_DIR, STEMS, separate
+from .separate import DEFAULT_DIR, DEFAULT_STEM, STEMS, separate
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
 OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
@@ -163,7 +163,7 @@ def add_separate_args(parser) -> None:
         "--separate", action="store_true", help="isola um stem com Demucs antes (extra [separate])"
     )
     parser.add_argument(
-        "--stem", choices=STEMS, default="vocals", help="stem usado (padrão vocals)"
+        "--stem", choices=STEMS, default=DEFAULT_STEM, help=f"stem usado (padrão {DEFAULT_STEM})"
     )
     parser.add_argument(
         "--stems-dir", type=Path, default=DEFAULT_DIR, help="cache dos stems (padrão separated/)"

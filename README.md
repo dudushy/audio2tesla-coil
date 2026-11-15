@@ -18,7 +18,7 @@ O plasma speaker reproduz uma onda quadrada de baixa fidelidade, como um tweeter
 | `check`: pico, RMS e clipping | ✅ |
 | `calibrate`: tons de teste + perfil da bobina (faixa mín/máx de Hz) | ✅ |
 | `midi`: melodia de `.mid` ou áudio → onda quadrada monofônica, dentro do perfil | ✅ (experimental) |
-| `--separate`: isola um stem (voz) com Demucs antes do `prep`/`midi` | ✅ (experimental) |
+| `--separate`: isola um stem com Demucs antes do `prep`/`midi` | ✅ (experimental) |
 
 ## Instalação
 
@@ -78,17 +78,17 @@ coil-prep midi musica.mp3 -o saida.wav --profile device.json
 Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--gap S` (silêncio entre notas coladas ou repetidas, padrão 0,02), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -8).
 
 - Uma faixa de 3 oitavas (como 100–800 Hz) sempre comporta qualquer nota movendo de oitava, sem perder a melodia; faixas com menos de 1 oitava dão erro.
-- **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; use `--separate` para isolar a voz antes (abaixo). O `midi` avisa quando mais de 30% do tempo tem notas sobrepostas, sinal de que a melodia pode sair errada.
+- **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; use `--separate` para isolar um stem antes (abaixo). O `midi` avisa quando mais de 30% do tempo tem notas sobrepostas, sinal de que a melodia pode sair errada.
 - **Extra `[midi]` (Basic Pitch):** no Linux exige **Python 3.10 ou 3.11** (as dependências `tensorflow<2.15.1` e `tflite-runtime` não têm wheel para 3.12+). O modo `.mid` funciona em qualquer Python 3.10+.
 
-### Isolar a voz antes (`--separate`)
+### Isolar um stem antes (`--separate`)
 
 ```bash
 pip install -e ".[separate]"        # Demucs + PyTorch (vários GB); o modelo baixa na 1ª execução
-coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate           # stem "vocals"
-coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate --stem other
+coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate                  # stem "other" (padrão)
+coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate --stem vocals
 ```
-Roda em **CPU**, então leva alguns minutos por música. O stem fica em cache em `separated/` (ignorado pelo git): rodar de novo na mesma música é rápido. `--stem` aceita `vocals`, `other`, `bass`, `drums`. Também funciona no `prep`. Para o extra `[midi]` e o `[separate]` juntos, use Python 3.10 ou 3.11. Dica para economizar disco: instale antes `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+Roda em **CPU**, então leva alguns minutos por música. O stem fica em cache em `separated/` (ignorado pelo git): rodar de novo na mesma música é rápido. `--stem` aceita `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (melhor para música cantada), `bass` e `drums`. Também funciona no `prep`. Para o extra `[midi]` e o `[separate]` juntos, use Python 3.10 ou 3.11. Dica para economizar disco: instale antes `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
 
 ## Calibragem da bobina
 
