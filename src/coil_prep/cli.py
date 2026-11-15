@@ -6,7 +6,16 @@ from . import __version__
 from .analysis import Report, analyze
 from .calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from .ffmpeg import FfmpegError, decode_mono, prep_file
-from .midi import MIDI_EXTS, RATE, notes_from, overlap_fraction, render, skyline
+from .midi import (
+    MIDI_EXTS,
+    RATE,
+    contour_fold,
+    melody_line,
+    notes_from,
+    overlap_fraction,
+    render,
+    skyline,
+)
 from .presets import PRESETS
 from .profile import DEFAULT_PATH, Profile, load_profile, save_profile
 from .separate import DEFAULT_DIR, DEFAULT_STEM, STEMS, separate
@@ -131,8 +140,13 @@ def cmd_midi(args) -> int:
         return 1
     try:
         origin = separate(args.input, args.stem, args.stems_dir) if args.separate else args.input
-        notes = notes_from(origin)
-        segments = skyline(notes, args.voices, args.min_note, args.gap)
+        notes = notes_from(origin, args.detect_min_note)
+        if args.voices == 1 and args.select == "weighted":
+            segments = melody_line(notes, args.min_note, args.gap, args.merge_gap)
+            if segments:
+                segments = contour_fold(segments, min_hz, max_hz)
+        else:
+            segments = skyline(notes, args.voices, args.min_note, args.gap)
         samples = render(segments, min_hz, max_hz, args.peak_db)
     except (ValueError, RuntimeError) as e:
         print(f"erro: {e}", file=sys.stderr)
@@ -206,6 +220,25 @@ def build_parser() -> argparse.ArgumentParser:
     midi.add_argument("--min-note", type=float, default=0.06, help="descarta notas < N s")
     midi.add_argument(
         "--gap", type=float, default=0.02, help="silêncio entre notas coladas, em s (padrão 0.02)"
+    )
+    midi.add_argument(
+        "--select",
+        choices=("weighted", "skyline"),
+        default="weighted",
+        help="1 voz: weighted = amplitude+altura+continuidade, oitava pelo contorno (padrão); "
+        "skyline = sempre a mais aguda, oitava nota a nota (comportamento antigo)",
+    )
+    midi.add_argument(
+        "--merge-gap",
+        type=float,
+        default=0.02,
+        help="junta fragmentos da mesma nota separados por menos de N s (padrão 0.02; 0 desliga)",
+    )
+    midi.add_argument(
+        "--detect-min-note",
+        type=float,
+        default=80.0,
+        help="ms: menor nota que o Basic Pitch detecta (padrão 80; o dele é 127.7)",
     )
     midi.add_argument("--peak-db", type=float, default=-8.0, help="pico de saída em dBFS")
     add_separate_args(midi)

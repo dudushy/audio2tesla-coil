@@ -20,6 +20,7 @@ class Note:
     start: float  # s
     end: float  # s
     pitch: int  # número MIDI
+    amp: float = 1.0  # 0..1; força da nota (amplitude do Basic Pitch, velocity do .mid)
 
 
 def midi_to_hz(pitch: float) -> float:
@@ -41,14 +42,19 @@ def read_midi(path: Path) -> list[Note]:
             continue
         key = (msg.channel, msg.note)
         if msg.type == "note_on" and msg.velocity > 0:
-            active.setdefault(key, now)
+            active.setdefault(key, (now, msg.velocity))
         elif key in active:
-            notes.append(Note(active.pop(key), now, msg.note))
+            start, vel = active.pop(key)
+            notes.append(Note(start, now, msg.note, vel / 127))
     return notes
 
 
-def transcribe_audio(path: Path) -> list[Note]:
-    """Áudio -> notas via Basic Pitch (extra [midi]). Decodifica antes com o ffmpeg."""
+def transcribe_audio(path: Path, min_note_ms: float = 80.0) -> list[Note]:
+    """Áudio -> notas via Basic Pitch (extra [midi]). Decodifica antes com o ffmpeg.
+
+    `min_note_ms`: o padrão do Basic Pitch é 127,7 ms, longo demais para melodias rápidas
+    (o Mario de referência tem notas de ~140 ms); o ruído que entra é limpo depois.
+    """
     os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlow é muito verboso
     try:
         from basic_pitch.inference import predict
@@ -61,8 +67,8 @@ def transcribe_audio(path: Path) -> list[Note]:
     with tempfile.TemporaryDirectory() as tmp:
         wav = Path(tmp) / "in.wav"
         run_ffmpeg(["-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "22050", str(wav)])
-        _, _, events = predict(str(wav))
-    return [Note(float(s), float(e), int(p)) for s, e, p, *_ in events]
+        _, _, events = predict(str(wav), minimum_note_length=min_note_ms)
+    return [Note(float(s), float(e), int(p), float(a)) for s, e, p, a, *_ in events]
 
 
 def skyline(
@@ -93,11 +99,94 @@ def skyline(
         else:
             segments.append((a, b, ids))
     out = [(a, b, tuple(notes[i].pitch for i in ids)) for a, b, ids in segments]
+    return finish(out, min_note, gap)
+
+
+def finish(out: list[tuple], min_note: float, gap: float) -> list[tuple]:
+    """Descarta trechos < `min_note` e abre `gap` s antes do trecho seguinte que encosta."""
     out = [s for s in out if s[1] - s[0] >= min_note]
     for k in range(len(out) - 1):
         a, b, p = out[k]
         if abs(out[k + 1][0] - b) < 1e-6:  # encosta no próximo trecho
             out[k] = (a, b - min(gap, (b - a) / 2), p)
+    return out
+
+
+# Pesos da escolha da melodia (heurística; ajuste de ouvido). Pontuação = amplitude
+# + ALTURA*altura + CONTINUIDADE*proximidade da nota anterior + bônus por continuar a mesma nota.
+W_HIGH, W_CONT, W_STAY = 0.5, 0.15, 0.05
+
+
+def _score(notes: list[Note], i: int, prev: int | None) -> float:
+    n = notes[i]
+    score = n.amp + W_HIGH * min(max((n.pitch - 40) / 40, 0), 1)
+    if prev is not None:
+        score += W_CONT * (1 - min(abs(n.pitch - notes[prev].pitch), 12) / 12)
+        score += W_STAY if i == prev else 0
+    return score
+
+
+def melody_line(
+    notes: list[Note], min_note: float = 0.06, gap: float = 0.02, merge_gap: float = 0.02
+) -> list[tuple]:
+    """Uma voz por instante, escolhida por pontuação (amplitude, altura, continuidade).
+
+    Melhor que "a mais aguda" em mixagem transcrita: ignora chiados fracos agudos (hi-hat) e
+    não pula entre notas distantes sem motivo. Depois junta fragmentos da mesma altura
+    separados por menos de `merge_gap` s (uma nota quebrada pelo transcritor).
+    """
+    if not notes:
+        return []
+    cuts = sorted({t for n in notes for t in (n.start, n.end)})
+    segments, prev = [], None  # (início, fim, id da nota)
+    for a, b in pairwise(cuts):
+        mid = (a + b) / 2
+        active = [i for i, n in enumerate(notes) if n.start <= mid < n.end]
+        if not active:
+            continue
+
+        best = max(active, key=lambda i: (_score(notes, i, prev), notes[i].pitch, -i))
+        if segments and segments[-1][1] == a and segments[-1][2] == best:
+            segments[-1] = (segments[-1][0], b, best)
+        else:
+            segments.append((a, b, best))
+        prev = best
+    out = [(a, b, (notes[i].pitch,)) for a, b, i in segments]
+    return finish(merge_same_pitch(out, merge_gap), min_note, gap)
+
+
+def merge_same_pitch(segments: list[tuple], merge_gap: float) -> list[tuple]:
+    """Junta trechos da mesma altura separados por 0 < silêncio < `merge_gap` s.
+
+    Trechos que encostam (silêncio 0) são notas repetidas de propósito e ficam separados.
+    """
+    out = []
+    for seg in segments:
+        if out and out[-1][2] == seg[2] and 1e-6 < seg[0] - out[-1][1] < merge_gap:
+            out[-1] = (out[-1][0], seg[1], seg[2])
+        else:
+            out.append(seg)
+    return out
+
+
+def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tuple]:
+    """Escolhe a oitava de cada nota (1 voz) pelo contorno: a mais próxima da nota anterior.
+
+    Dobrar nota a nota (fold_to_range) cria saltos de oitava falsos quando a melodia cruza
+    a borda da faixa. A primeira nota usa fold_to_range; as seguintes ficam, dentro da faixa,
+    na oitava que menos pula em relação à anterior. Preserva a classe de altura.
+    """
+    out, prev = [], None
+    for a, b, (p,) in segments:
+        if prev is None:
+            q = round(69 + 12 * np.log2(fold_to_range(p, min_hz, max_hz) / 440.0))
+        else:
+            cands = [
+                p + 12 * k for k in range(-10, 11) if min_hz <= midi_to_hz(p + 12 * k) <= max_hz
+            ]
+            q = min(cands, key=lambda c: (abs(c - prev), c))
+        out.append((a, b, (int(q),)))
+        prev = q
     return out
 
 
@@ -152,5 +241,7 @@ def overlap_fraction(notes: list[Note]) -> float:
     return poly / active if active else 0.0
 
 
-def notes_from(path: Path) -> list[Note]:
-    return read_midi(path) if path.suffix.lower() in MIDI_EXTS else transcribe_audio(path)
+def notes_from(path: Path, min_note_ms: float = 80.0) -> list[Note]:
+    if path.suffix.lower() in MIDI_EXTS:
+        return read_midi(path)
+    return transcribe_audio(path, min_note_ms)

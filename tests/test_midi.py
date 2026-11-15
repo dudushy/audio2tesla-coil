@@ -1,4 +1,5 @@
 import importlib.util
+import itertools
 
 import mido
 import numpy as np
@@ -8,7 +9,18 @@ from conftest import sine, write_wav
 from coil_prep.analysis import analyze
 from coil_prep.cli import main
 from coil_prep.ffmpeg import decode_mono
-from coil_prep.midi import RATE, Note, fold_to_range, midi_to_hz, read_midi, render, skyline
+from coil_prep.midi import (
+    RATE,
+    Note,
+    contour_fold,
+    fold_to_range,
+    melody_line,
+    merge_same_pitch,
+    midi_to_hz,
+    read_midi,
+    render,
+    skyline,
+)
 
 C_MAJOR = [60, 62, 64, 65, 67, 69, 71, 72]
 
@@ -161,3 +173,111 @@ def test_overlap_fraction():
     assert overlap_fraction([Note(0, 1, 60), Note(1, 2, 62)]) == 0
     assert overlap_fraction([Note(0, 2, 60), Note(1, 2, 64)]) == 0.5
     assert overlap_fraction([]) == 0
+
+
+def test_melody_line_ignores_weak_high_noise_and_keeps_melody():
+    melody = [Note(0, 1, 64, 0.8), Note(1, 2, 67, 0.8)]
+    hihat = [Note(0.2, 0.7, 96, 0.1), Note(1.2, 1.6, 100, 0.1)]  # agudo mas fraco
+    got = melody_line(melody + hihat, gap=0)
+    assert [s[2] for s in got] == [(64,), (67,)]
+
+
+def test_melody_line_prefers_loud_lead_over_loud_bass():
+    notes = [Note(0, 2, 40, 0.7), Note(0, 2, 72, 0.7)]  # empate de amplitude: a aguda ganha
+    assert [s[2] for s in melody_line(notes, gap=0)] == [(72,)]
+
+
+def test_merge_same_pitch_fragments_but_not_repeated_notes():
+    frag = [(0, 0.5, (64,)), (0.51, 1.0, (64,))]  # 10 ms de silêncio: nota quebrada
+    assert merge_same_pitch(frag, 0.02) == [(0, 1.0, (64,))]
+    assert merge_same_pitch(frag, 0) == frag  # desligado
+    repeated = [(0, 0.5, (64,)), (0.5, 1.0, (64,))]  # encostadas: repetição intencional
+    assert merge_same_pitch(repeated, 0.02) == repeated
+    far = [(0, 0.5, (64,)), (0.6, 1.0, (64,))]  # 100 ms de pausa: duas notas
+    assert merge_same_pitch(far, 0.02) == far
+
+
+def test_contour_fold_avoids_false_octave_jumps_at_range_edge():
+    # melodia cruzando 800 Hz (G5=784, A5=880): nota a nota, A5 viraria A4 (salto de 10 semitons)
+    segs = [(0, 1, (79,)), (1, 2, (81,)), (2, 3, (83,))]
+    got = [s[2][0] for s in contour_fold(segs, 100, 800)]
+    assert got == [79, 69, 71]  # A5/B5 não cabem; ficam em A4/B4, mas sem saltar além do necessário
+    assert all(100 <= midi_to_hz(p) <= 800 for p in got)
+    # a diferença de classe de altura é preservada
+    assert [(p - q) % 12 for p, q in zip(got, [79, 81, 83])] == [0, 0, 0]
+
+
+def test_contour_fold_keeps_steps_small():
+    # escala descendo até o piso (100 Hz ~ G2/Ab2): só o passo forçado pela borda pode passar de 6
+    segs = [(i, i + 1, (p,)) for i, p in enumerate([60, 55, 50, 45, 40, 43, 47])]
+    got = [s[2][0] for s in contour_fold(segs, 100, 800)]
+    assert max(abs(b - a) for a, b in itertools.pairwise(got)) <= 7
+    assert all(100 <= midi_to_hz(p) <= 800 for p in got)
+
+
+def test_cli_select_skyline_keeps_old_behavior(tmp_path):
+    mid = tmp_path / "two.mid"
+    make_mid(mid, [(0, 60, 0, 2), (0, 72, 1, 1)])
+    out = tmp_path / "o.wav"
+    assert main(["midi", str(mid), "-o", str(out), "--select", "skyline"]) == 0
+    x = decode_mono(out)
+    assert abs(dominant_hz(x[int(0.6 * RATE) : int(0.9 * RATE)]) - midi_to_hz(72)) < 6
+
+
+def test_cli_end_to_end_weak_noise_is_removed(tmp_path):
+    # melodia forte (C4 E4 G4, notas de 0,3 s) + "chiado" agudo e curto; velocity vira amp
+    path = tmp_path / "m.mid"
+    track = mido.MidiTrack()
+    mid = mido.MidiFile(ticks_per_beat=480)
+    msgs = []
+    for start, note, vel in [
+        (0, 60, 100),
+        (0.5, 64, 100),
+        (1.0, 67, 100),
+        (0.1, 100, 8),
+        (0.6, 100, 8),
+    ]:
+        msgs.append((start, 1, mido.Message("note_on", note=note, velocity=vel)))
+        msgs.append((start + 0.3, 0, mido.Message("note_off", note=note)))
+    last = 0
+    for beat, _, msg in sorted(msgs, key=lambda m: (m[0], m[1])):
+        tick = round(beat * 2 * 480)  # `beat` aqui está em segundos; 120 bpm = 2 beats/s
+        track.append(msg.copy(time=tick - last))
+        last = tick
+    mid.tracks.append(track)
+    mid.save(str(path))
+    out = tmp_path / "o.wav"
+    assert main(["midi", str(path), "-o", str(out)]) == 0
+    x = decode_mono(out)
+    for t, note in [(0, 60), (0.5, 64), (1.0, 67)]:
+        seg = x[int((t + 0.05) * RATE) : int((t + 0.25) * RATE)]
+        assert abs(dominant_hz(seg) - midi_to_hz(note)) < 6, note
+
+
+def test_transcribe_audio_passes_min_note_and_reads_amplitude(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from coil_prep.midi import transcribe_audio
+
+    seen = {}
+
+    def fake_predict(path, **kw):
+        seen.update(kw)
+        return None, None, [(0.0, 0.5, 64, 0.7, None)]  # (início, fim, altura, amplitude, bends)
+
+    fake = types.ModuleType("basic_pitch.inference")
+    fake.predict = fake_predict
+    monkeypatch.setitem(sys.modules, "basic_pitch", types.ModuleType("basic_pitch"))
+    monkeypatch.setitem(sys.modules, "basic_pitch.inference", fake)
+    src = tmp_path / "in.wav"
+    write_wav(src, sine(440, 0.5))
+    assert transcribe_audio(src, 90) == [Note(0.0, 0.5, 64, 0.7)]
+    assert seen == {"minimum_note_length": 90}
+
+
+def test_melody_line_sustained_bass_does_not_capture_the_melody():
+    bass = Note(0, 2, 43, 0.6)  # nota grave longa, amplitude parecida com a da melodia
+    lead = [Note(0.2 * i, 0.2 * i + 0.15, p, 0.6) for i, p in enumerate([72, 76, 79, 76, 72])]
+    got = melody_line([bass, *lead], gap=0)
+    assert [s[2][0] for s in got][:5] == [72, 76, 79, 76, 72]  # depois só resta o baixo
