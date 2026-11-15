@@ -68,7 +68,7 @@ coil-prep check output.wav                         # exit code 1 if peak > -3 dB
 Filtering a full mix (`prep`) keeps drums, bass and synths in range, and the coil plays **one note at a time**, so it turns into noise. `midi` extracts only the **melody**, like someone humming:
 
 ```
-.mid or audio → notes → highest note at each instant ("skyline") → octave-folded into the coil range → square wave
+.mid or audio → notes → one voice per instant (amplitude + pitch + continuity) → fragment cleanup → octave chosen by contour inside the coil range → square wave
 ```
 ```bash
 coil-prep midi song.mid -o out.wav --profile device.json   # .mid: light, numpy + mido only
@@ -76,6 +76,8 @@ pip install -e ".[midi]"                                    # extra for audio (B
 coil-prep midi song.mp3 -o out.wav --profile device.json
 ```
 Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S seconds, default 0.06), `--gap S` (silence between touching or repeated notes, default 0.02), `--min-hz/--max-hz` (override the profile; without a profile 100–800 Hz is used), `--peak-db` (default -8).
+
+Note cleanup (1 voice): `--select weighted|skyline` (default `weighted`: scores amplitude, pitch and closeness to the previous note, which ignores weak high noise and sustained bass; `skyline` = always the highest note, the old behaviour), `--merge-gap S` (joins fragments of the same note separated by less than S s, default 0.02; 0 disables; touching repeated notes are not merged) and `--detect-min-note MS` (shortest note Basic Pitch detects, default 80 ms; its own default is 127.7). Each note's octave follows the contour (closest to the previous note inside the range), avoiding false octave jumps.
 
 - A 3-octave range (like 100–800 Hz) always fits any note by octave folding, keeping the melody; ranges under 1 octave are an error.
 - **Limitation:** transcription of a full mix is error-prone, and "highest note" is not always the melody. A melody `.mid` usually sounds better; use `--separate` to isolate a stem first (below). `midi` warns when more than 30% of the time has overlapping notes, a sign the melody may come out wrong.

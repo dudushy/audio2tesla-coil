@@ -68,7 +68,7 @@ O `prep` sempre mede o resultado ao final e avisa se o pico passou de -3 dBFS. S
 Filtrar uma mixagem cheia (`prep`) deixa bateria, baixo e sintes dentro da faixa, e a bobina toca **uma nota por vez**, então vira ruído. O `midi` extrai só a **melodia**, como alguém murmurando:
 
 ```
-.mid ou áudio → notas → a mais aguda de cada instante ("skyline") → move de oitava para a faixa da bobina → onda quadrada
+.mid ou áudio → notas → 1 voz por instante (amplitude + altura + continuidade) → limpa fragmentos → oitava pelo contorno dentro da faixa da bobina → onda quadrada
 ```
 ```bash
 coil-prep midi musica.mid -o saida.wav --profile device.json   # .mid: leve, só numpy + mido
@@ -76,6 +76,8 @@ pip install -e ".[midi]"                                        # extra p/ áudi
 coil-prep midi musica.mp3 -o saida.wav --profile device.json
 ```
 Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--gap S` (silêncio entre notas coladas ou repetidas, padrão 0,02), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -8).
+
+Limpeza de notas (1 voz): `--select weighted|skyline` (padrão `weighted`: pontua amplitude, altura e proximidade da nota anterior, o que ignora chiado agudo fraco e baixo sustentado; `skyline` = sempre a mais aguda, comportamento antigo), `--merge-gap S` (junta fragmentos da mesma nota separados por menos de S s, padrão 0,02; 0 desliga; notas repetidas que encostam não são juntadas) e `--detect-min-note MS` (menor nota que o Basic Pitch detecta, padrão 80 ms; o dele é 127,7). A oitava de cada nota é escolhida pelo contorno (a mais próxima da nota anterior dentro da faixa), sem saltos de oitava falsos.
 
 - Uma faixa de 3 oitavas (como 100–800 Hz) sempre comporta qualquer nota movendo de oitava, sem perder a melodia; faixas com menos de 1 oitava dão erro.
 - **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; use `--separate` para isolar um stem antes (abaixo). O `midi` avisa quando mais de 30% do tempo tem notas sobrepostas, sinal de que a melodia pode sair errada.
