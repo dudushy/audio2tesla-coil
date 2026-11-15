@@ -18,7 +18,7 @@ A plasma speaker plays a low-fidelity square wave, like a tweeter. So "cleaning"
 | `check`: peak, RMS and clipping | ✅ |
 | `calibrate`: test tones + coil profile (min/max Hz range) | ✅ |
 | `midi`: melody from `.mid` or audio → monophonic square wave, within the profile | ✅ (experimental) |
-| `--separate`: isolates a stem (vocals) with Demucs before `prep`/`midi` | ✅ (experimental) |
+| `--separate`: isolates a stem with Demucs before `prep`/`midi` | ✅ (experimental) |
 
 ## Install
 
@@ -78,17 +78,17 @@ coil-prep midi song.mp3 -o out.wav --profile device.json
 Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S seconds, default 0.06), `--gap S` (silence between touching or repeated notes, default 0.02), `--min-hz/--max-hz` (override the profile; without a profile 100–800 Hz is used), `--peak-db` (default -8).
 
 - A 3-octave range (like 100–800 Hz) always fits any note by octave folding, keeping the melody; ranges under 1 octave are an error.
-- **Limitation:** transcription of a full mix is error-prone, and "highest note" is not always the melody. A melody `.mid` usually sounds better; use `--separate` to isolate the vocals first (below). `midi` warns when more than 30% of the time has overlapping notes, a sign the melody may come out wrong.
+- **Limitation:** transcription of a full mix is error-prone, and "highest note" is not always the melody. A melody `.mid` usually sounds better; use `--separate` to isolate a stem first (below). `midi` warns when more than 30% of the time has overlapping notes, a sign the melody may come out wrong.
 - **`[midi]` extra (Basic Pitch):** on Linux it needs **Python 3.10 or 3.11** (`tensorflow<2.15.1` and `tflite-runtime` have no wheels for 3.12+). The `.mid` mode works on any Python 3.10+.
 
-### Isolate the vocals first (`--separate`)
+### Isolate a stem first (`--separate`)
 
 ```bash
 pip install -e ".[separate]"        # Demucs + PyTorch (several GB); the model downloads on first run
-coil-prep midi song.mp3 -o out.wav --profile device.json --separate           # "vocals" stem
-coil-prep midi song.mp3 -o out.wav --profile device.json --separate --stem other
+coil-prep midi song.mp3 -o out.wav --profile device.json --separate                  # "other" stem (default)
+coil-prep midi song.mp3 -o out.wav --profile device.json --separate --stem vocals
 ```
-Runs on **CPU**, so it takes a few minutes per song. The stem is cached in `separated/` (git-ignored): rerunning on the same song is fast. `--stem` accepts `vocals`, `other`, `bass`, `drums`. Also works with `prep`. For the `[midi]` and `[separate]` extras together, use Python 3.10 or 3.11. Tip to save disk: install first `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+Runs on **CPU**, so it takes a few minutes per song. The stem is cached in `separated/` (git-ignored): rerunning on the same song is fast. `--stem` accepts `other` (default: synths and instruments, where the melody usually is in electronic music), `vocals` (better for sung music), `bass` and `drums`. Also works with `prep`. For the `[midi]` and `[separate]` extras together, use Python 3.10 or 3.11. Tip to save disk: install first `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
 
 ## Coil calibration
 

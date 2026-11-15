@@ -52,3 +52,10 @@ def test_midi_separate_rejects_midi_input(tmp_path, capsys):
     mid.write_bytes(b"")
     assert main(["midi", str(mid), "-o", str(tmp_path / "o.wav"), "--separate"]) == 1
     assert "só vale para áudio" in capsys.readouterr().err
+
+
+def test_default_stem_is_other():
+    from coil_prep.cli import build_parser
+
+    args = build_parser().parse_args(["midi", "a.mp3", "-o", "o.wav", "--separate"])
+    assert args.stem == "other"
