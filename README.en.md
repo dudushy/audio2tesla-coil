@@ -22,7 +22,7 @@ A plasma speaker plays a low-fidelity square wave, like a tweeter. So "cleaning"
 
 ## Install
 
-Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) on `PATH`.
+Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) on `PATH`. For `midi` with audio use Python 3.10 or 3.11 (see below).
 
 **Linux** (bash/zsh) or **WSL / Ubuntu**
 ```bash
@@ -32,6 +32,21 @@ cd audio2tesla-coil
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
+
+**Linux with Python 3.11 via [uv](https://docs.astral.sh/uv/) (recommended for `midi` with audio and `--separate`)**
+
+Basic Pitch (the `[midi]` extra) does not install on Python 3.12+ (e.g. the 3.14 some distros ship). `uv` downloads 3.11 for you without touching the system Python:
+```bash
+sudo apt install ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh        # installs uv (or: pipx install uv)
+git clone https://github.com/dudushy/audio2tesla-coil
+cd audio2tesla-coil
+uv venv --python 3.11 ~/.venvs/coil-prep
+source ~/.venvs/coil-prep/bin/activate
+uv pip install -e ".[midi,separate]"                   # Basic Pitch + Demucs (several GB)
+coil-prep --version
+```
+The `[midi]` extra already pins `numpy<2` and `setuptools<81` (required by TensorFlow and resampy); do not install newer versions on top. Without the extras (plain `pip install -e .`), `prep`, `check`, `calibrate` and `midi` with `.mid` work.
 
 **PowerShell (Windows)**
 ```powershell
@@ -45,6 +60,26 @@ pip install -e .
 
 Tip: audio leaves through the headphone jack of the system where you play the WAV; play it where you generated it, or copy the file.
 
+## Full workflow (song → coil)
+
+Work in a dedicated folder: `device.json` and `separated/` (stem cache) are created **in the current folder**.
+```bash
+mkdir -p ~/WorkspaceLinux/tesla-coil/{input,output} && cd ~/WorkspaceLinux/tesla-coil
+source ~/.venvs/coil-prep/bin/activate
+
+# 1) once: find the coil's range by ear (LOW volume)
+coil-prep calibrate tones -o output/calibrate.wav     # plays 100..2000 Hz, one tone every 2 s
+coil-prep calibrate save --min 100 --max 1000          # the Hz that sounded like a clear note
+
+# 2) per song: monophonic melody ("other" stem is the --separate default)
+coil-prep midi input/song.mp3 -o output/song.wav --profile device.json --separate
+coil-prep check output/song.wav                        # peak and clipping
+
+# lighter alternative: busy songs -> filters only (no melody)
+coil-prep prep input/song.mp3 -o output/song_prep.wav --profile device.json
+```
+Only `prep` takes a folder (batch); `midi` processes one file at a time. The first `--separate` downloads the Demucs model and takes a few minutes per song on CPU; afterwards the stem is cached in `separated/` and re-runs are fast. Always start with the coil's **volume LOW**.
+
 ## Usage
 
 ```bash
@@ -52,7 +87,7 @@ coil-prep prep input.mp3 -o output.wav             # default preset
 coil-prep prep input.mp3 -o output.wav --preset vocal
 coil-prep prep input.mp3 -o output.wav --highpass 200 --lowpass 5000 --limit 0.6
 coil-prep prep my_music/ -o out/                   # batch (mp3, wav, flac, ogg, m4a)
-coil-prep check output.wav                         # exit code 1 if peak > -3 dBFS or clipping
+coil-prep check output.wav                         # exit code 1 if peak > -3 dBFS or clipping (--max-peak changes the limit)
 ```
 
 | Preset | High-pass | Low-pass | Limit |
@@ -97,8 +132,8 @@ Runs on **CPU**, so it takes a few minutes per song. The stem is cached in `sepa
 There's no point generating frequencies the coil can't play. Find the range by ear:
 ```bash
 coil-prep calibrate tones -o calibrate.wav     # square tones, low volume (-8 dBFS)
-# play calibrate.wav on the coil (start with LOW volume) and note which tones sound like a clear note
-coil-prep calibrate save --min 200 --max 3000  # writes device.json (git-ignored)
+# tones run from 100 to 2000 Hz (--freqs changes the grid); play calibrate.wav on the coil (start with LOW volume) and note which tones sound like a clear note
+coil-prep calibrate save --min 100 --max 1000  # writes device.json in the current folder (git-ignored)
 coil-prep prep input.mp3 -o output.wav --profile device.json   # filters = profile min/max
 ```
 Cutoff priority: `--highpass/--lowpass` > `--profile` > `--preset`.
@@ -118,7 +153,7 @@ Tests generate synthetic audio; **never commit copyrighted music or audio** (`.g
 ## Credits
 
 - [Demucs](https://github.com/adefossez/demucs) (MIT), stem separation (`--separate`)
-- [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, Spotify), audio → MIDI (planned)
+- [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, Spotify), audio → MIDI (`[midi]` extra)
 - [midi2tesla](https://github.com/yspacedev/midi2tesla): idea reference only, no code reused
 
 ## License
