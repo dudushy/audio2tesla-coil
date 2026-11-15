@@ -17,12 +17,21 @@ A plasma speaker plays a low-fidelity square wave, like a tweeter. So "cleaning"
 | `prep`: mono, high/low-pass and limiter (ffmpeg), presets, batch | ✅ |
 | `check`: peak, RMS and clipping | ✅ |
 | `calibrate`: test tones + coil profile (min/max Hz range) | ✅ |
-| `midi`: MIDI/audio → square wave (1 voice by default, within the profile) | planned |
+| `midi`: melody from `.mid` or audio → monophonic square wave, within the profile | ✅ (experimental) |
 | `--separate`: Demucs as a pre-step | planned |
 
 ## Install
 
 Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) on `PATH`.
+
+**Linux** (bash/zsh) or **WSL / Ubuntu**
+```bash
+sudo apt install ffmpeg python3-venv
+git clone https://github.com/dudushy/audio2tesla-coil
+cd audio2tesla-coil
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
 
 **PowerShell (Windows)**
 ```powershell
@@ -34,15 +43,7 @@ py -m venv .venv
 pip install -e .
 ```
 
-**WSL / Ubuntu**
-```bash
-sudo apt install ffmpeg python3-venv
-git clone https://github.com/dudushy/audio2tesla-coil
-cd audio2tesla-coil
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-Tip: audio leaves through Windows' headphone jack, so generating and playing the WAV on Windows avoids copying files between systems.
+Tip: audio leaves through the headphone jack of the system where you play the WAV; play it where you generated it, or copy the file.
 
 ## Usage
 
@@ -61,6 +62,24 @@ coil-prep check output.wav                         # exit code 1 if peak > -3 dB
 | `safe` | 150 Hz | 6000 Hz | 0.5 (~ -6 dBFS) |
 
 `prep` always measures the result and warns if the peak exceeds -3 dBFS. Output: 16-bit mono WAV, 44.1 kHz (`--rate` changes it). `check` decodes through ffmpeg, so it reads any format.
+
+## Melody mode (`midi`): the main path
+
+Filtering a full mix (`prep`) keeps drums, bass and synths in range, and the coil plays **one note at a time**, so it turns into noise. `midi` extracts only the **melody**, like someone humming:
+
+```
+.mid or audio → notes → highest note at each instant ("skyline") → octave-folded into the coil range → square wave
+```
+```bash
+coil-prep midi song.mid -o out.wav --profile device.json   # .mid: light, numpy + mido only
+pip install -e ".[midi]"                                    # extra for audio (Basic Pitch)
+coil-prep midi song.mp3 -o out.wav --profile device.json
+```
+Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S seconds, default 0.06), `--min-hz/--max-hz` (override the profile; without a profile 100–800 Hz is used), `--peak-db` (default -4).
+
+- A 3-octave range (like 100–800 Hz) always fits any note by octave folding, keeping the melody; ranges under 1 octave are an error.
+- **Limitation:** transcription of a full mix is error-prone, and "highest note" is not always the melody. A melody `.mid` usually sounds better; isolating vocals with Demucs is planned.
+- **`[midi]` extra (Basic Pitch):** on Linux it needs **Python 3.10 or 3.11** (`tensorflow<2.15.1` and `tflite-runtime` have no wheels for 3.12+). The `.mid` mode works on any Python 3.10+.
 
 ## Coil calibration
 

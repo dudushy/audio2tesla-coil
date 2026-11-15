@@ -17,12 +17,21 @@ O plasma speaker reproduz uma onda quadrada de baixa fidelidade, como um tweeter
 | `prep`: mono, passa-alta/baixa e limiter (ffmpeg), presets, lote | ✅ |
 | `check`: pico, RMS e clipping | ✅ |
 | `calibrate`: tons de teste + perfil da bobina (faixa mín/máx de Hz) | ✅ |
-| `midi`: MIDI/áudio → onda quadrada (1 voz por padrão, dentro do perfil) | planejado |
+| `midi`: melodia de `.mid` ou áudio → onda quadrada monofônica, dentro do perfil | ✅ (experimental) |
 | `--separate`: Demucs como pré-etapa | planejado |
 
 ## Instalação
 
 Requisitos: Python 3.10+ e [ffmpeg](https://ffmpeg.org/) no `PATH`.
+
+**Linux** (bash/zsh) ou **WSL / Ubuntu**
+```bash
+sudo apt install ffmpeg python3-venv
+git clone https://github.com/dudushy/audio2tesla-coil
+cd audio2tesla-coil
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
 
 **PowerShell (Windows)**
 ```powershell
@@ -34,15 +43,7 @@ py -m venv .venv
 pip install -e .
 ```
 
-**WSL / Ubuntu**
-```bash
-sudo apt install ffmpeg python3-venv
-git clone https://github.com/dudushy/audio2tesla-coil
-cd audio2tesla-coil
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-Dica: o áudio sai pelo P2 do Windows, então gerar e tocar o WAV no próprio Windows evita copiar arquivos entre os sistemas.
+Dica: o áudio sai pelo P2 do sistema onde você toca o WAV; toque no mesmo sistema onde gerou, ou copie o arquivo.
 
 ## Uso
 
@@ -61,6 +62,24 @@ coil-prep check saida.wav                          # exit code 1 se pico > -3 dB
 | `safe` | 150 Hz | 6000 Hz | 0.5 (~ -6 dBFS) |
 
 O `prep` sempre mede o resultado ao final e avisa se o pico passou de -3 dBFS. Saída: WAV 16-bit mono, 44,1 kHz (`--rate` altera). O `check` decodifica via ffmpeg, então lê qualquer formato.
+
+## Modo melodia (`midi`): o caminho principal
+
+Filtrar uma mixagem cheia (`prep`) deixa bateria, baixo e sintes dentro da faixa, e a bobina toca **uma nota por vez**, então vira ruído. O `midi` extrai só a **melodia**, como alguém murmurando:
+
+```
+.mid ou áudio → notas → a mais aguda de cada instante ("skyline") → move de oitava para a faixa da bobina → onda quadrada
+```
+```bash
+coil-prep midi musica.mid -o saida.wav --profile device.json   # .mid: leve, só numpy + mido
+pip install -e ".[midi]"                                        # extra p/ áudio (Basic Pitch)
+coil-prep midi musica.mp3 -o saida.wav --profile device.json
+```
+Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -4).
+
+- Uma faixa de 3 oitavas (como 100–800 Hz) sempre comporta qualquer nota movendo de oitava, sem perder a melodia; faixas com menos de 1 oitava dão erro.
+- **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; isolar a voz com Demucs está planejado.
+- **Extra `[midi]` (Basic Pitch):** no Linux exige **Python 3.10 ou 3.11** (as dependências `tensorflow<2.15.1` e `tflite-runtime` não têm wheel para 3.12+). O modo `.mid` funciona em qualquer Python 3.10+.
 
 ## Calibragem da bobina
 

@@ -29,7 +29,7 @@ def build_filter(highpass: float, lowpass: float, limit: float, rate: int) -> st
     )
 
 
-def _run(args: list[str]) -> bytes:
+def run_ffmpeg(args: list[str]) -> bytes:
     cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", *args]
     result = subprocess.run(cmd, capture_output=True, check=False)
     if result.returncode != 0:
@@ -41,7 +41,7 @@ def prep_file(
     src: Path, dst: Path, highpass: float, lowpass: float, limit: float, rate: int
 ) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    _run(
+    run_ffmpeg(
         [
             "-y",
             "-i",
@@ -60,5 +60,5 @@ def prep_file(
 
 def decode_mono(path: Path) -> np.ndarray:
     """Decodifica qualquer formato para float32 mono (-1..1) na taxa original."""
-    data = _run(["-i", str(path), "-vn", "-ac", "1", "-f", "f32le", "-"])
+    data = run_ffmpeg(["-i", str(path), "-vn", "-ac", "1", "-f", "f32le", "-"])
     return np.frombuffer(data, dtype="<f4")
