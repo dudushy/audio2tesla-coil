@@ -1,5 +1,6 @@
 """Modo melodia: notas (de .mid ou de áudio) -> 1 voz -> faixa da bobina -> onda quadrada."""
 
+import os
 import tempfile
 from dataclasses import dataclass
 from itertools import pairwise
@@ -48,11 +49,13 @@ def read_midi(path: Path) -> list[Note]:
 
 def transcribe_audio(path: Path) -> list[Note]:
     """Áudio -> notas via Basic Pitch (extra [midi]). Decodifica antes com o ffmpeg."""
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlow é muito verboso
     try:
         from basic_pitch.inference import predict
-    except ImportError:
+    except ImportError as e:
         raise RuntimeError(
-            "Basic Pitch não instalado. Instale o extra: pip install -e '.[midi]'\n"
+            f"Não foi possível importar o Basic Pitch: {e}\n"
+            "Instale/atualize o extra: pip install -e '.[midi]' "
             "(precisa de Python 3.10 ou 3.11 no Linux; veja o README)"
         ) from None
     with tempfile.TemporaryDirectory() as tmp:
