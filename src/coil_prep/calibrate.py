@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 RATE = 44100
-DEFAULT_FREQS = [100, 150, 200, 300, 440, 600, 800, 1000, 1500, 2000, 3000, 4000, 6000, 8000]
+DEFAULT_FREQS = [100, 150, 200, 300, 440, 600, 700, 800, 900, 1000, 1100, 1250, 1500, 2000]
 
 
 def square_tones(freqs: list[float], seconds: float, gap: float, peak_db: float) -> np.ndarray:

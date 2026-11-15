@@ -62,27 +62,40 @@ def transcribe_audio(path: Path) -> list[Note]:
     return [Note(float(s), float(e), int(p)) for s, e, p, *_ in events]
 
 
-def skyline(notes: list[Note], voices: int = 1, min_note: float = 0.06) -> list[tuple]:
+def skyline(
+    notes: list[Note], voices: int = 1, min_note: float = 0.06, gap: float = 0.02
+) -> list[tuple]:
     """Em cada instante fica com as `voices` notas mais agudas ativas.
 
-    Retorna segmentos (início, fim, (alturas...)) sem sobreposição; trechos mais curtos
-    que `min_note` s são descartados (ruído de transcrição).
+    Retorna segmentos (início, fim, (alturas...)) sem sobreposição. Trechos menores que
+    `min_note` s são descartados (ruído de transcrição). Notas repetidas (mesma altura,
+    uma logo após a outra) continuam separadas: o fim de cada trecho que encosta no
+    próximo é encurtado em `gap` s para a bobina articular as duas, em vez de segurar uma nota.
     """
     if not notes:
         return []
     cuts = sorted({t for n in notes for t in (n.start, n.end)})
-    segments = []
+    segments = []  # (início, fim, ids das notas, alturas)
     for a, b in pairwise(cuts):
         mid = (a + b) / 2
-        active = sorted({n.pitch for n in notes if n.start <= mid < n.end}, reverse=True)[:voices]
+        active = sorted(
+            (i for i, n in enumerate(notes) if n.start <= mid < n.end),
+            key=lambda i: (-notes[i].pitch, i),
+        )[:voices]
         if not active:
             continue
-        pitches = tuple(active)
-        if segments and segments[-1][1] == a and segments[-1][2] == pitches:
-            segments[-1] = (segments[-1][0], b, pitches)  # une trechos iguais e contíguos
+        ids = tuple(active)
+        if segments and segments[-1][1] == a and segments[-1][2] == ids:
+            segments[-1] = (segments[-1][0], b, ids)  # mesma(s) nota(s) cortada(s) por outra
         else:
-            segments.append((a, b, pitches))
-    return [s for s in segments if s[1] - s[0] >= min_note]
+            segments.append((a, b, ids))
+    out = [(a, b, tuple(notes[i].pitch for i in ids)) for a, b, ids in segments]
+    out = [s for s in out if s[1] - s[0] >= min_note]
+    for k in range(len(out) - 1):
+        a, b, p = out[k]
+        if abs(out[k + 1][0] - b) < 1e-6:  # encosta no próximo trecho
+            out[k] = (a, b - min(gap, (b - a) / 2), p)
+    return out
 
 
 def fold_to_range(pitch: int, min_hz: float, max_hz: float) -> float:

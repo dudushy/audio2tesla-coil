@@ -75,7 +75,7 @@ coil-prep midi song.mid -o out.wav --profile device.json   # .mid: light, numpy 
 pip install -e ".[midi]"                                    # extra for audio (Basic Pitch)
 coil-prep midi song.mp3 -o out.wav --profile device.json
 ```
-Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S seconds, default 0.06), `--min-hz/--max-hz` (override the profile; without a profile 100–800 Hz is used), `--peak-db` (default -4).
+Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S seconds, default 0.06), `--gap S` (silence between touching or repeated notes, default 0.02), `--min-hz/--max-hz` (override the profile; without a profile 100–800 Hz is used), `--peak-db` (default -8).
 
 - A 3-octave range (like 100–800 Hz) always fits any note by octave folding, keeping the melody; ranges under 1 octave are an error.
 - **Limitation:** transcription of a full mix is error-prone, and "highest note" is not always the melody. A melody `.mid` usually sounds better; isolating vocals with Demucs is planned.
@@ -85,7 +85,7 @@ Options: `--voices N` (default 1), `--min-note S` (drops notes shorter than S se
 
 There's no point generating frequencies the coil can't play. Find the range by ear:
 ```bash
-coil-prep calibrate tones -o calibrate.wav     # square tones, low volume (-12 dBFS)
+coil-prep calibrate tones -o calibrate.wav     # square tones, low volume (-8 dBFS)
 # play calibrate.wav on the coil (start with LOW volume) and note which tones sound like a clear note
 coil-prep calibrate save --min 200 --max 3000  # writes device.json (git-ignored)
 coil-prep prep input.mp3 -o output.wav --profile device.json   # filters = profile min/max

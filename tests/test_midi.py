@@ -56,14 +56,30 @@ def test_read_midi_ignores_drums(tmp_path):
 
 def test_skyline_picks_highest_note():
     notes = [Note(0, 2, 48), Note(1, 2, 72)]  # grave longa + aguda entrando em 1 s
-    assert skyline(notes) == [(0, 1, (48,)), (1, 2, (72,))]
+    assert skyline(notes, gap=0) == [(0, 1, (48,)), (1, 2, (72,))]
 
 
 def test_skyline_voices_and_merge_and_min_note():
     notes = [Note(0, 1, 60), Note(1, 2, 60), Note(0.5, 1.5, 67), Note(3, 3.02, 80)]
-    assert skyline(notes, voices=1) == [(0, 0.5, (60,)), (0.5, 1.5, (67,)), (1.5, 2, (60,))]
-    assert skyline(notes, voices=2)[1] == (0.5, 1.5, (67, 60))
-    assert all(s[0] != 3 for s in skyline(notes))  # nota de 20 ms descartada
+    assert skyline(notes, voices=1, gap=0) == [(0, 0.5, (60,)), (0.5, 1.5, (67,)), (1.5, 2, (60,))]
+    assert skyline(notes, voices=2, gap=0)[1] == (0.5, 1.0, (67, 60))
+    assert all(s[0] != 3 for s in skyline(notes, gap=0))  # nota de 20 ms descartada
+
+
+def test_skyline_keeps_repeated_notes_separate_with_gap():
+    notes = [Note(0, 0.5, 64), Note(0.5, 1.0, 64), Note(1.0, 1.5, 64)]  # três E4 seguidos
+    assert skyline(notes, gap=0.02) == [(0, 0.48, (64,)), (0.5, 0.98, (64,)), (1.0, 1.5, (64,))]
+
+
+def test_skyline_merges_one_note_split_by_a_lower_note():
+    notes = [Note(0, 2, 72), Note(1, 1.5, 48)]
+    assert skyline(notes) == [(0, 2, (72,))]
+
+
+def test_render_has_silence_between_repeated_notes():
+    segs = skyline([Note(0, 0.5, 64), Note(0.5, 1.0, 64)], gap=0.02)
+    x = render(segs, 100, 800)
+    assert np.all(x[int(0.485 * RATE) : int(0.495 * RATE)] == 0)  # meio do intervalo de 20 ms
 
 
 def test_fold_always_fits_three_octave_range_and_keeps_pitch_class():

@@ -124,7 +124,7 @@ def cmd_midi(args) -> int:
         return 1
     try:
         notes = notes_from(args.input)
-        segments = skyline(notes, args.voices, args.min_note)
+        segments = skyline(notes, args.voices, args.min_note, args.gap)
         samples = render(segments, min_hz, max_hz, args.peak_db)
     except (ValueError, RuntimeError) as e:
         print(f"erro: {e}", file=sys.stderr)
@@ -172,17 +172,20 @@ def build_parser() -> argparse.ArgumentParser:
     midi.add_argument("--max-hz", type=float, help="sobrescreve o máximo do perfil")
     midi.add_argument("--voices", type=int, default=1, help="vozes simultâneas (padrão 1)")
     midi.add_argument("--min-note", type=float, default=0.06, help="descarta notas < N s")
-    midi.add_argument("--peak-db", type=float, default=-4.0, help="pico de saída em dBFS")
+    midi.add_argument(
+        "--gap", type=float, default=0.02, help="silêncio entre notas coladas, em s (padrão 0.02)"
+    )
+    midi.add_argument("--peak-db", type=float, default=-8.0, help="pico de saída em dBFS")
     midi.set_defaults(func=cmd_midi)
 
     cal = sub.add_parser("calibrate", help="descobre a faixa de Hz que a bobina toca")
     cal_sub = cal.add_subparsers(dest="cal_command", required=True)
     tones = cal_sub.add_parser("tones", help="gera WAV de tons quadrados para ouvir na bobina")
     tones.add_argument("-o", "--output", type=Path, default=Path("calibrate.wav"))
-    tones.add_argument("--freqs", type=float, nargs="+", help="Hz (padrão: 100..8000)")
+    tones.add_argument("--freqs", type=float, nargs="+", help="Hz (padrão: 100..2000)")
     tones.add_argument("--seconds", type=float, default=1.5, help="duração de cada tom")
     tones.add_argument("--gap", type=float, default=0.5, help="silêncio entre tons")
-    tones.add_argument("--peak-db", type=float, default=-12.0, help="volume do teste (dBFS)")
+    tones.add_argument("--peak-db", type=float, default=-8.0, help="volume do teste (dBFS)")
     tones.set_defaults(func=cmd_calibrate_tones)
     save = cal_sub.add_parser("save", help="salva o perfil (faixa mín/máx em Hz)")
     save.add_argument("--min", type=float, required=True, help="menor Hz que toca bem")

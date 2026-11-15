@@ -75,7 +75,7 @@ coil-prep midi musica.mid -o saida.wav --profile device.json   # .mid: leve, só
 pip install -e ".[midi]"                                        # extra p/ áudio (Basic Pitch)
 coil-prep midi musica.mp3 -o saida.wav --profile device.json
 ```
-Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -4).
+Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--gap S` (silêncio entre notas coladas ou repetidas, padrão 0,02), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -8).
 
 - Uma faixa de 3 oitavas (como 100–800 Hz) sempre comporta qualquer nota movendo de oitava, sem perder a melodia; faixas com menos de 1 oitava dão erro.
 - **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; isolar a voz com Demucs está planejado.
@@ -85,7 +85,7 @@ Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S
 
 Não adianta gerar frequências que a bobina não toca. Descubra a faixa de ouvido:
 ```bash
-coil-prep calibrate tones -o calibrate.wav     # tons quadrados, volume baixo (-12 dBFS)
+coil-prep calibrate tones -o calibrate.wav     # tons quadrados, volume baixo (-8 dBFS)
 # toque calibrate.wav na bobina (comece com volume BAIXO) e anote quais tons soam como nota clara
 coil-prep calibrate save --min 200 --max 3000  # grava device.json (ignorado pelo git)
 coil-prep prep entrada.mp3 -o saida.wav --profile device.json   # filtros = min/max do perfil
