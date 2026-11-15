@@ -16,7 +16,8 @@ O plasma speaker reproduz uma onda quadrada de baixa fidelidade, como um tweeter
 |---|---|
 | `prep`: mono, passa-alta/baixa e limiter (ffmpeg), presets, lote | ✅ |
 | `check`: pico, RMS e clipping | ✅ |
-| `midi`: MIDI/áudio → onda quadrada (1 voz por padrão) | planejado |
+| `calibrate`: tons de teste + perfil da bobina (faixa mín/máx de Hz) | ✅ |
+| `midi`: MIDI/áudio → onda quadrada (1 voz por padrão, dentro do perfil) | planejado |
 | `--separate`: Demucs como pré-etapa | planejado |
 
 ## Instalação
@@ -60,6 +61,17 @@ coil-prep check saida.wav                          # exit code 1 se pico > -3 dB
 | `safe` | 150 Hz | 6000 Hz | 0.5 (~ -6 dBFS) |
 
 O `prep` sempre mede o resultado ao final e avisa se o pico passou de -3 dBFS. Saída: WAV 16-bit mono, 44,1 kHz (`--rate` altera). O `check` decodifica via ffmpeg, então lê qualquer formato.
+
+## Calibragem da bobina
+
+Não adianta gerar frequências que a bobina não toca. Descubra a faixa de ouvido:
+```bash
+coil-prep calibrate tones -o calibrate.wav     # tons quadrados, volume baixo (-12 dBFS)
+# toque calibrate.wav na bobina (comece com volume BAIXO) e anote quais tons soam como nota clara
+coil-prep calibrate save --min 200 --max 3000  # grava device.json (ignorado pelo git)
+coil-prep prep entrada.mp3 -o saida.wav --profile device.json   # filtros = min/max do perfil
+```
+Prioridade dos cortes: `--highpass/--lowpass` > `--profile` > `--preset`.
 
 ## ⚠️ Segurança
 

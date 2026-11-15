@@ -17,3 +17,6 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+
+# Perfil local do dispositivo
+device.json

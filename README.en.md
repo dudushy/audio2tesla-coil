@@ -16,7 +16,8 @@ A plasma speaker plays a low-fidelity square wave, like a tweeter. So "cleaning"
 |---|---|
 | `prep`: mono, high/low-pass and limiter (ffmpeg), presets, batch | ✅ |
 | `check`: peak, RMS and clipping | ✅ |
-| `midi`: MIDI/audio → square wave (1 voice by default) | planned |
+| `calibrate`: test tones + coil profile (min/max Hz range) | ✅ |
+| `midi`: MIDI/audio → square wave (1 voice by default, within the profile) | planned |
 | `--separate`: Demucs as a pre-step | planned |
 
 ## Install
@@ -60,6 +61,17 @@ coil-prep check output.wav                         # exit code 1 if peak > -3 dB
 | `safe` | 150 Hz | 6000 Hz | 0.5 (~ -6 dBFS) |
 
 `prep` always measures the result and warns if the peak exceeds -3 dBFS. Output: 16-bit mono WAV, 44.1 kHz (`--rate` changes it). `check` decodes through ffmpeg, so it reads any format.
+
+## Coil calibration
+
+There's no point generating frequencies the coil can't play. Find the range by ear:
+```bash
+coil-prep calibrate tones -o calibrate.wav     # square tones, low volume (-12 dBFS)
+# play calibrate.wav on the coil (start with LOW volume) and note which tones sound like a clear note
+coil-prep calibrate save --min 200 --max 3000  # writes device.json (git-ignored)
+coil-prep prep input.mp3 -o output.wav --profile device.json   # filters = profile min/max
+```
+Cutoff priority: `--highpass/--lowpass` > `--profile` > `--preset`.
 
 ## ⚠️ Safety
 

@@ -4,8 +4,10 @@ from pathlib import Path
 
 from . import __version__
 from .analysis import Report, analyze
+from .calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from .ffmpeg import FfmpegError, decode_mono, prep_file
 from .presets import PRESETS
+from .profile import DEFAULT_PATH, Profile, load_profile, save_profile
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
 DEFAULT_MAX_PEAK = -3.0
@@ -30,8 +32,16 @@ def cmd_check(args) -> int:
 
 def cmd_prep(args) -> int:
     preset = PRESETS[args.preset]
-    highpass = args.highpass if args.highpass is not None else preset.highpass
-    lowpass = args.lowpass if args.lowpass is not None else preset.lowpass
+    base_hp, base_lp = preset.highpass, preset.lowpass
+    if args.profile:  # perfil do dispositivo substitui os cortes do preset
+        try:
+            profile = load_profile(args.profile)
+        except ValueError as e:
+            print(f"erro: {e}", file=sys.stderr)
+            return 1
+        base_hp, base_lp = profile.min_hz, profile.max_hz
+    highpass = args.highpass if args.highpass is not None else base_hp
+    lowpass = args.lowpass if args.lowpass is not None else base_lp
     limit = args.limit if args.limit is not None else preset.limit
 
     src = args.input
@@ -70,6 +80,32 @@ def cmd_prep(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_calibrate_tones(args) -> int:
+    freqs = args.freqs or DEFAULT_FREQS
+    write_mono_wav(args.output, square_tones(freqs, args.seconds, args.gap, args.peak_db))
+    step = args.seconds + args.gap
+    print(
+        f"{args.output}: {len(freqs)} tons quadrados, pico {args.peak_db:g} dBFS. Comece com volume BAIXO."
+    )
+    for i, f in enumerate(freqs):
+        print(f"  {i * step:6.1f}s  {f:g} Hz")
+    print(
+        "Anote quais soam como nota clara e depois rode: coil-prep calibrate save --min HZ --max HZ"
+    )
+    return 0
+
+
+def cmd_calibrate_save(args) -> int:
+    try:
+        profile = Profile(args.min, args.max, args.name)
+    except ValueError as e:
+        print(f"erro: {e}", file=sys.stderr)
+        return 1
+    save_profile(profile, args.profile)
+    print(f"Perfil salvo em {args.profile}: {profile.min_hz:g}-{profile.max_hz:g} Hz")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="coil-prep", description="Prepara áudio para plasma speaker.")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -84,6 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--highpass", type=float, help="Hz (sobrescreve o preset)")
     prep.add_argument("--lowpass", type=float, help="Hz (sobrescreve o preset)")
     prep.add_argument("--limit", type=float, help="limite linear 0.0625..1 (0.7 ~ -3 dBFS)")
+    prep.add_argument(
+        "--profile", type=Path, help="device.json (calibrate save): usa min/max Hz como filtros"
+    )
     prep.add_argument("--rate", type=int, default=44100, help="sample rate de saída (padrão 44100)")
     prep.set_defaults(func=cmd_prep)
 
@@ -91,6 +130,24 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("file", type=Path)
     check.add_argument("--max-peak", type=float, default=DEFAULT_MAX_PEAK, help="dBFS (padrão -3)")
     check.set_defaults(func=cmd_check)
+
+    cal = sub.add_parser("calibrate", help="descobre a faixa de Hz que a bobina toca")
+    cal_sub = cal.add_subparsers(dest="cal_command", required=True)
+    tones = cal_sub.add_parser("tones", help="gera WAV de tons quadrados para ouvir na bobina")
+    tones.add_argument("-o", "--output", type=Path, default=Path("calibrate.wav"))
+    tones.add_argument("--freqs", type=float, nargs="+", help="Hz (padrão: 100..8000)")
+    tones.add_argument("--seconds", type=float, default=1.5, help="duração de cada tom")
+    tones.add_argument("--gap", type=float, default=0.5, help="silêncio entre tons")
+    tones.add_argument("--peak-db", type=float, default=-12.0, help="volume do teste (dBFS)")
+    tones.set_defaults(func=cmd_calibrate_tones)
+    save = cal_sub.add_parser("save", help="salva o perfil (faixa mín/máx em Hz)")
+    save.add_argument("--min", type=float, required=True, help="menor Hz que toca bem")
+    save.add_argument("--max", type=float, required=True, help="maior Hz que toca bem")
+    save.add_argument("--name", default="plasma-speaker")
+    save.add_argument(
+        "--profile", type=Path, default=DEFAULT_PATH, help="arquivo (padrão device.json)"
+    )
+    save.set_defaults(func=cmd_calibrate_save)
     return p
 
 
