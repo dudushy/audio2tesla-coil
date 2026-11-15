@@ -153,3 +153,11 @@ def test_basic_pitch_transcribes_two_synthetic_notes(tmp_path):
     assert main(["midi", str(src), "-o", str(out)]) == 0
     got = decode_mono(out)
     assert abs(dominant_hz(got[int(0.2 * RATE) : int(0.9 * RATE)]) - 440) < 6
+
+
+def test_overlap_fraction():
+    from coil_prep.midi import overlap_fraction
+
+    assert overlap_fraction([Note(0, 1, 60), Note(1, 2, 62)]) == 0
+    assert overlap_fraction([Note(0, 2, 60), Note(1, 2, 64)]) == 0.5
+    assert overlap_fraction([]) == 0

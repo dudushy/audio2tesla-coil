@@ -6,11 +6,13 @@ from . import __version__
 from .analysis import Report, analyze
 from .calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from .ffmpeg import FfmpegError, decode_mono, prep_file
-from .midi import RATE, notes_from, render, skyline
+from .midi import MIDI_EXTS, RATE, notes_from, overlap_fraction, render, skyline
 from .presets import PRESETS
 from .profile import DEFAULT_PATH, Profile, load_profile, save_profile
+from .separate import DEFAULT_DIR, STEMS, separate
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
+OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
 DEFAULT_MAX_PEAK = -3.0
 FALLBACK_RANGE = (100.0, 800.0)  # sem --profile: faixa que soou bem na calibragem de teste
 
@@ -69,9 +71,10 @@ def cmd_prep(args) -> int:
             failed += 1
             continue
         try:
-            prep_file(s, d, highpass, lowpass, limit, args.rate)
+            origin = separate(s, args.stem, args.stems_dir) if args.separate else s
+            prep_file(origin, d, highpass, lowpass, limit, args.rate)
             report = analyze(decode_mono(d))
-        except (FfmpegError, ValueError) as e:
+        except (FfmpegError, ValueError, RuntimeError) as e:
             print(f"{s}: erro: {e}", file=sys.stderr)
             failed += 1
             continue
@@ -122,13 +125,29 @@ def cmd_midi(args) -> int:
     if not args.input.is_file():
         print(f"Entrada não encontrada: {args.input}", file=sys.stderr)
         return 1
+    is_midi = args.input.suffix.lower() in MIDI_EXTS
+    if args.separate and is_midi:
+        print("erro: --separate só vale para áudio, não para .mid", file=sys.stderr)
+        return 1
     try:
-        notes = notes_from(args.input)
+        origin = separate(args.input, args.stem, args.stems_dir) if args.separate else args.input
+        notes = notes_from(origin)
         segments = skyline(notes, args.voices, args.min_note, args.gap)
         samples = render(segments, min_hz, max_hz, args.peak_db)
     except (ValueError, RuntimeError) as e:
         print(f"erro: {e}", file=sys.stderr)
         return 1
+    if not is_midi and (frac := overlap_fraction(notes)) > OVERLAP_WARN:
+        hint = (
+            "tente outro --stem, ou um .mid de melodia"
+            if args.separate
+            else "tente --separate (isola a voz com Demucs) ou um .mid de melodia"
+        )
+        print(
+            f"aviso: {frac:.0%} do tempo tem notas sobrepostas (mixagem polifônica); "
+            f"a melodia pode sair errada: {hint}.",
+            file=sys.stderr,
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_mono_wav(args.output, samples, RATE)
     report = analyze(decode_mono(args.output))
@@ -137,6 +156,18 @@ def cmd_midi(args) -> int:
         f"({args.voices} voz), faixa {min_hz:g}-{max_hz:g} Hz | {format_report(report)}"
     )
     return 0 if is_ok(report, DEFAULT_MAX_PEAK) else 1
+
+
+def add_separate_args(parser) -> None:
+    parser.add_argument(
+        "--separate", action="store_true", help="isola um stem com Demucs antes (extra [separate])"
+    )
+    parser.add_argument(
+        "--stem", choices=STEMS, default="vocals", help="stem usado (padrão vocals)"
+    )
+    parser.add_argument(
+        "--stems-dir", type=Path, default=DEFAULT_DIR, help="cache dos stems (padrão separated/)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -157,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile", type=Path, help="device.json (calibrate save): usa min/max Hz como filtros"
     )
     prep.add_argument("--rate", type=int, default=44100, help="sample rate de saída (padrão 44100)")
+    add_separate_args(prep)
     prep.set_defaults(func=cmd_prep)
 
     check = sub.add_parser("check", help="reporta pico, RMS e clipping")
@@ -176,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--gap", type=float, default=0.02, help="silêncio entre notas coladas, em s (padrão 0.02)"
     )
     midi.add_argument("--peak-db", type=float, default=-8.0, help="pico de saída em dBFS")
+    add_separate_args(midi)
     midi.set_defaults(func=cmd_midi)
 
     cal = sub.add_parser("calibrate", help="descobre a faixa de Hz que a bobina toca")
