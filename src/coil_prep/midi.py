@@ -135,5 +135,19 @@ def render(
     return out * 10 ** (peak_db / 20)
 
 
+def overlap_fraction(notes: list[Note]) -> float:
+    """Fração do tempo com notas soando em que há 2 ou mais notas ao mesmo tempo."""
+    cuts = sorted({t for n in notes for t in (n.start, n.end)})
+    active = poly = 0.0
+    for a, b in pairwise(cuts):
+        mid = (a + b) / 2
+        count = sum(n.start <= mid < n.end for n in notes)
+        if count:
+            active += b - a
+            if count > 1:
+                poly += b - a
+    return poly / active if active else 0.0
+
+
 def notes_from(path: Path) -> list[Note]:
     return read_midi(path) if path.suffix.lower() in MIDI_EXTS else transcribe_audio(path)
