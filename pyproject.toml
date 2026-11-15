@@ -9,9 +9,10 @@ description = "Prepara áudio para tocar em plasma speaker / mini bobina de Tesl
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["numpy"]
+dependencies = ["numpy", "mido"]
 
 [project.optional-dependencies]
+midi = ["basic-pitch"]  # áudio -> notas; no Linux exige Python 3.10 ou 3.11
 dev = ["pytest", "ruff"]
 
 [project.scripts]

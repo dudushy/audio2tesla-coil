@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 RATE = 44100
-DEFAULT_FREQS = [100, 150, 200, 300, 440, 600, 800, 1000, 1500, 2000, 3000, 4000, 6000, 8000]
+DEFAULT_FREQS = [100, 150, 200, 300, 440, 600, 700, 800, 900, 1000, 1100, 1250, 1500, 2000]
 
 
 def square_tones(freqs: list[float], seconds: float, gap: float, peak_db: float) -> np.ndarray:
@@ -18,10 +18,10 @@ def square_tones(freqs: list[float], seconds: float, gap: float, peak_db: float)
     return np.concatenate(parts)
 
 
-def write_mono_wav(path: Path, samples: np.ndarray) -> None:
+def write_mono_wav(path: Path, samples: np.ndarray, rate: int = RATE) -> None:
     pcm = (np.clip(samples, -1, 1) * 32767).astype("<i2")
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
-        w.setframerate(RATE)
+        w.setframerate(rate)
         w.writeframes(pcm.tobytes())
