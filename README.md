@@ -28,7 +28,7 @@ Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 
 1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB).
 2. Escolha o **som a usar**: `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (música cantada) ou `mix` (sem separar).
-3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o WAV.
+3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o **WAV** (recomendado) ou o **MP3** (o codec com perdas pode arredondar um pouco as quinas da onda quadrada).
 4. Toque na bobina e **avalie** (👍/👎, com um motivo no 👎). As avaliações ficam em `data/feedback.jsonl` e o app passa a **sugerir o som** (stem) com a melhor média no seu histórico. Isso é só uma média por stem, sem machine learning: um modelo para escolher a nota da melodia só faria sentido com dezenas de avaliações.
 
 O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma da bobina. **Comece com o volume BAIXO.**

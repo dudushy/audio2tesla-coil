@@ -3,6 +3,8 @@
 import hashlib
 import os
 import re
+import threading
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -10,10 +12,12 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from .. import feedback
+from .. import notes as notes_mod
 from ..calibrate import DEFAULT_FREQS, square_tones
 from ..fetch import is_url
+from ..ffmpeg import wav_to_mp3
 from ..midi import MIDI_EXTS, RATE
-from ..pipeline import STEM_CHOICES
+from ..pipeline import STEM_CHOICES, apply_edit
 from ..profile import Profile, load_profile, save_profile
 from .jobs import JobManager
 
@@ -27,6 +31,17 @@ TONE_PEAK_DB = -8.0  # mesmo nível da saída do app
 class FeedbackIn(BaseModel):
     rating: int
     tag: str | None = None
+
+
+class NoteIn(BaseModel):
+    id: int | None = None
+    start: float
+    end: float
+    pitch: int
+
+
+class NotesIn(BaseModel):
+    notes: list[NoteIn]
 
 
 class ProfileIn(BaseModel):
@@ -60,6 +75,7 @@ def safe_name(filename: str) -> tuple[str, str]:
 def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     data_dir.mkdir(parents=True, exist_ok=True)
     jobs = manager or JobManager(data_dir)
+    edit_lock = threading.Lock()
     app = FastAPI(title="coil-prep", docs_url=None, redoc_url=None)
 
     @app.get("/")
@@ -107,14 +123,60 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         return job.to_dict()
 
     @app.get("/api/jobs/{job_id}/audio/{which}")
-    def job_audio(job_id: str, which: str, download: bool = False):
+    def job_audio(job_id: str, which: str, download: bool = False, format: str = "wav"):
         job = jobs.get(job_id)
         if job is None or job.result is None:
             raise HTTPException(404, "áudio indisponível")
         path = {"result": job.result.wav, "original": job.result.original}.get(which)
         if path is None or not path.is_file():
             raise HTTPException(404, "áudio indisponível")
+        if format not in ("wav", "mp3"):
+            raise HTTPException(422, "format deve ser wav ou mp3")
+        if format == "mp3":
+            if which != "result":
+                raise HTTPException(422, "MP3 só para o resultado")
+            mp3 = path.with_suffix(".mp3")  # regenerado a cada pedido: o WAV pode ter sido editado
+            with edit_lock:
+                wav_to_mp3(path, mp3)
+            return FileResponse(
+                mp3, media_type="audio/mpeg", filename=mp3.name if download else None
+            )
         return FileResponse(path, filename=path.name if download else None)
+
+    def notes_payload(job, generated, current):
+        r = job.result
+        low, high = notes_mod.pitch_range(r.min_hz, r.max_hz)
+        return {
+            "min_hz": r.min_hz,
+            "max_hz": r.max_hz,
+            "min_pitch": low,
+            "max_pitch": high,
+            "generated": [asdict(n) for n in generated],
+            "notes": [asdict(n) for n in current],
+            "peak_db": round(r.peak_db, 1),
+            "ok": r.ok,
+        }
+
+    @app.get("/api/jobs/{job_id}/notes")
+    def get_notes(job_id: str):
+        job = jobs.get(job_id)
+        if job is None or job.result is None:
+            raise HTTPException(404, "notas indisponíveis")
+        data = notes_mod.load(job.result.notes_file)
+        return notes_payload(job, data["generated"], data["current"])
+
+    @app.put("/api/jobs/{job_id}/notes")
+    def put_notes(job_id: str, body: NotesIn):
+        job = jobs.get(job_id)
+        if job is None or job.result is None:
+            raise HTTPException(404, "notas indisponíveis")
+        with edit_lock:
+            try:
+                job.result, cleaned = apply_edit(job.result, [n.model_dump() for n in body.notes])
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from None
+            generated = notes_mod.load(job.result.notes_file)["generated"]
+        return notes_payload(job, generated, cleaned)
 
     @app.post("/api/jobs/{job_id}/feedback")
     def job_feedback(job_id: str, body: FeedbackIn):

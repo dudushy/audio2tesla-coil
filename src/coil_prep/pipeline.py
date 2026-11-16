@@ -1,9 +1,10 @@
 """Fluxo único: URL ou arquivo -> (stem) -> melodia -> onda quadrada -> WAV para a bobina."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from . import notes as notes_mod
 from .analysis import analyze
 from .calibrate import write_mono_wav
 from .fetch import fetch, is_url
@@ -32,6 +33,7 @@ Progress = Callable[[str], None]
 @dataclass(frozen=True)
 class Result:
     wav: Path
+    notes_file: Path  # JSON com as notas geradas e as editadas
     original: Path | None  # áudio de origem (None se a entrada foi .mid)
     stem: str
     min_hz: float
@@ -85,9 +87,13 @@ def process(
     out = workdir / "output" / f"{original.stem}.{stem}.wav"  # um arquivo por stem
     out.parent.mkdir(parents=True, exist_ok=True)
     write_mono_wav(out, render(segments, min_hz, max_hz, PEAK_DB), RATE)
+    editable = notes_mod.from_segments(segments)
+    notes_file = out.with_suffix(".notes.json")
+    notes_mod.save(notes_file, min_hz, max_hz, editable, editable)
     report = analyze(decode_mono(out))
     return Result(
         wav=out,
+        notes_file=notes_file,
         original=None if is_midi else original,
         stem="mix" if (stem == "mix" or is_midi) else stem,
         min_hz=min_hz,
@@ -98,3 +104,17 @@ def process(
         peak_db=report.peak_db,
         clipped=report.clipped,
     )
+
+
+def apply_edit(result: Result, raw_notes: list[dict]) -> tuple[Result, list[notes_mod.EditNote]]:
+    """Valida as notas editadas, re-renderiza o WAV (mesmo `render` do pipeline) e salva o JSON."""
+    saved = notes_mod.load(result.notes_file)
+    cleaned = notes_mod.validate(raw_notes, result.min_hz, result.max_hz)
+    if not cleaned:
+        raise ValueError("nenhuma nota: o resultado ficaria em silêncio")
+    samples = render(notes_mod.to_segments(cleaned), result.min_hz, result.max_hz, PEAK_DB)
+    write_mono_wav(result.wav, samples, RATE)
+    notes_mod.save(result.notes_file, result.min_hz, result.max_hz, saved["generated"], cleaned)
+    report = analyze(decode_mono(result.wav))
+    updated = replace(result, segments=len(cleaned), peak_db=report.peak_db, clipped=report.clipped)
+    return updated, cleaned
