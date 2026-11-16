@@ -1,6 +1,5 @@
 import pytest
 
-from coil_prep.cli import main
 from coil_prep.fetch import FetchError, fetch, is_url
 
 
@@ -63,7 +62,7 @@ def test_fetch_returns_wav_and_sets_options(tmp_path):
     assert opts["postprocessor_args"]["extractaudio"] == ["-ar", "44100"]
 
 
-def test_cli_fetch_without_yt_dlp_gives_friendly_error(tmp_path, capsys, monkeypatch):
+def test_fetch_without_yt_dlp_gives_friendly_error(tmp_path, monkeypatch):
     import builtins
 
     real = builtins.__import__
@@ -74,5 +73,5 @@ def test_cli_fetch_without_yt_dlp_gives_friendly_error(tmp_path, capsys, monkeyp
         return real(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    assert main(["fetch", "https://youtu.be/abc", "-d", str(tmp_path)]) == 2
-    assert "extra" in capsys.readouterr().err
+    with pytest.raises(FetchError, match="yt-dlp"):
+        fetch("https://youtu.be/abc", tmp_path)

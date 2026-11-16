@@ -1,0 +1,14 @@
+.git
+.venv
+data
+separated
+output
+input
+__pycache__
+*.egg-info
+.pytest_cache
+.ruff_cache
+*.wav
+*.mp3
+*.mid
+device.json

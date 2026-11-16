@@ -9,20 +9,19 @@ description = "Prepara áudio para tocar em plasma speaker / mini bobina de Tesl
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["numpy", "mido"]
+dependencies = ["numpy", "mido", "yt-dlp", "fastapi", "uvicorn", "python-multipart"]
 
 [project.optional-dependencies]
 separate = ["demucs"]
-youtube = ["yt-dlp"]
 # áudio -> notas; no Linux exige Python 3.10 ou 3.11. numpy<2 (TensorFlow) e setuptools<81 (resampy usa pkg_resources)
 midi = ["basic-pitch", "numpy<2", "setuptools<81"]
-dev = ["pytest", "ruff"]
-
-[project.scripts]
-coil-prep = "coil_prep.cli:main"
+dev = ["pytest", "ruff", "httpx"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"coil_prep.web" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

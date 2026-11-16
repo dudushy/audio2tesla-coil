@@ -20,3 +20,8 @@ dist/
 
 # Perfil local do dispositivo
 device.json
+
+# Dados do app em Docker (áudio, stems, perfil, feedback)
+data/
+input/
+output/

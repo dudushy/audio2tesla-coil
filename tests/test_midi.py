@@ -7,7 +7,6 @@ import pytest
 from conftest import sine, write_wav
 
 from coil_prep.analysis import analyze
-from coil_prep.cli import main
 from coil_prep.ffmpeg import decode_mono
 from coil_prep.midi import (
     RATE,
@@ -21,6 +20,13 @@ from coil_prep.midi import (
     render,
     skyline,
 )
+from coil_prep.pipeline import process
+from coil_prep.profile import Profile
+
+
+def run(path, tmp_path, profile=None):
+    return process(str(path), tmp_path / "work", profile, "mix")
+
 
 C_MAJOR = [60, 62, 64, 65, 67, 69, 71, 72]
 
@@ -119,41 +125,36 @@ def test_render_empty_raises():
         render([], 100, 800)
 
 
-def test_cli_scale_end_to_end(tmp_path, capsys):
-    out = tmp_path / "scale.wav"
-    assert main(["midi", str(scale_mid(tmp_path)), "-o", str(out)]) == 0
-    assert main(["check", str(out)]) == 0
-    x = decode_mono(out)
+def test_pipeline_scale_end_to_end(tmp_path):
+    res = run(scale_mid(tmp_path), tmp_path)
+    assert res.ok and res.original is None
+    x = decode_mono(res.wav)
     for i, note in enumerate(C_MAJOR):  # cada 0,5 s toca a nota esperada
         seg = x[int((0.5 * i + 0.1) * RATE) : int((0.5 * i + 0.4) * RATE)]
         assert abs(dominant_hz(seg) - midi_to_hz(note)) < 4, note
     assert not analyze(x).clipped
 
 
-def test_cli_folds_out_of_range_note_with_profile(tmp_path):
-    prof = tmp_path / "device.json"
-    main(["calibrate", "save", "--min", "100", "--max", "800", "--profile", str(prof)])
+def test_pipeline_folds_out_of_range_note_with_profile(tmp_path):
     mid = tmp_path / "low.mid"
     make_mid(mid, [(0, 36, 0, 2)])  # C2 = 65,4 Hz, abaixo da faixa
-    out = tmp_path / "o.wav"
-    assert main(["midi", str(mid), "-o", str(out), "--profile", str(prof)]) == 0
-    x = decode_mono(out)
+    x = decode_mono(run(mid, tmp_path, Profile(100, 800)).wav)
     assert abs(dominant_hz(x[RATE // 10 : RATE]) - 130.8) < 3  # subiu uma oitava
 
 
-def test_cli_empty_midi_is_clear_error(tmp_path, capsys):
+def test_pipeline_empty_midi_is_clear_error(tmp_path):
     mid = tmp_path / "empty.mid"
     make_mid(mid, [(9, 36, 0, 1)])  # só percussão
-    assert main(["midi", str(mid), "-o", str(tmp_path / "o.wav")]) == 1
-    assert "nenhuma nota" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="nenhuma nota"):
+        run(mid, tmp_path)
 
 
-def test_audio_without_basic_pitch_gives_clear_error(tmp_path, monkeypatch, capsys):
+def test_audio_without_basic_pitch_gives_clear_error(tmp_path, monkeypatch):
     src = tmp_path / "in.wav"
     write_wav(src, sine(440))
     monkeypatch.setitem(__import__("sys").modules, "basic_pitch.inference", None)
-    assert main(["midi", str(src), "-o", str(tmp_path / "o.wav")]) == 1
-    assert "pip install" in capsys.readouterr().err
+    with pytest.raises(RuntimeError, match="pip install"):
+        run(src, tmp_path)
 
 
 @pytest.mark.skipif(importlib.util.find_spec("basic_pitch") is None, reason="extra [midi] ausente")
@@ -161,9 +162,7 @@ def test_basic_pitch_transcribes_two_synthetic_notes(tmp_path):
     x = np.concatenate([sine(440, 1.0, 0.6), np.zeros(RATE // 2), sine(330, 1.0, 0.6)])
     src = tmp_path / "two.wav"
     write_wav(src, x)
-    out = tmp_path / "o.wav"
-    assert main(["midi", str(src), "-o", str(out)]) == 0
-    got = decode_mono(out)
+    got = decode_mono(run(src, tmp_path).wav)
     assert abs(dominant_hz(got[int(0.2 * RATE) : int(0.9 * RATE)]) - 440) < 6
 
 
@@ -215,16 +214,7 @@ def test_contour_fold_keeps_steps_small():
     assert all(100 <= midi_to_hz(p) <= 800 for p in got)
 
 
-def test_cli_select_skyline_keeps_old_behavior(tmp_path):
-    mid = tmp_path / "two.mid"
-    make_mid(mid, [(0, 60, 0, 2), (0, 72, 1, 1)])
-    out = tmp_path / "o.wav"
-    assert main(["midi", str(mid), "-o", str(out), "--select", "skyline"]) == 0
-    x = decode_mono(out)
-    assert abs(dominant_hz(x[int(0.6 * RATE) : int(0.9 * RATE)]) - midi_to_hz(72)) < 6
-
-
-def test_cli_end_to_end_weak_noise_is_removed(tmp_path):
+def test_pipeline_weak_noise_is_removed(tmp_path):
     # melodia forte (C4 E4 G4, notas de 0,3 s) + "chiado" agudo e curto; velocity vira amp
     path = tmp_path / "m.mid"
     track = mido.MidiTrack()
@@ -246,9 +236,7 @@ def test_cli_end_to_end_weak_noise_is_removed(tmp_path):
         last = tick
     mid.tracks.append(track)
     mid.save(str(path))
-    out = tmp_path / "o.wav"
-    assert main(["midi", str(path), "-o", str(out)]) == 0
-    x = decode_mono(out)
+    x = decode_mono(run(path, tmp_path).wav)
     for t, note in [(0, 60), (0.5, 64), (1.0, 67)]:
         seg = x[int((t + 0.05) * RATE) : int((t + 0.25) * RATE)]
         assert abs(dominant_hz(seg) - midi_to_hz(note)) < 6, note

@@ -4,7 +4,7 @@ import pytest
 from conftest import sine, write_wav
 
 from coil_prep import separate as sep
-from coil_prep.cli import main
+from coil_prep.pipeline import process
 
 
 def test_separate_runs_demucs_once_then_uses_cache(tmp_path, monkeypatch):
@@ -12,7 +12,7 @@ def test_separate_runs_demucs_once_then_uses_cache(tmp_path, monkeypatch):
     src.write_bytes(b"")
     calls = []
 
-    def fake_run(cmd, check=False):
+    def fake_run(cmd, check=False, **kwargs):
         calls.append(cmd)
         out = sep.stem_path(src, "vocals", tmp_path / "out")  # arquivo que o Demucs criaria
         out.parent.mkdir(parents=True)
@@ -39,23 +39,22 @@ def test_separate_without_demucs_gives_clear_error(tmp_path, monkeypatch):
         sep.separate(tmp_path / "a.mp3", "vocals", tmp_path / "out")
 
 
-def test_cli_separate_error_is_reported(tmp_path, monkeypatch, capsys):
+def test_pipeline_separate_error_is_reported(tmp_path, monkeypatch):
     monkeypatch.setattr(sep.importlib.util, "find_spec", lambda name: None)
     src = tmp_path / "in.wav"
     write_wav(src, sine(440))
-    assert main(["prep", str(src), "-o", str(tmp_path / "o.wav"), "--separate"]) == 1
-    assert "Demucs não instalado" in capsys.readouterr().err
+    with pytest.raises(RuntimeError, match="Demucs não instalado"):
+        process(str(src), tmp_path / "work", None, "other")
 
 
-def test_midi_separate_rejects_midi_input(tmp_path, capsys):
+def test_pipeline_midi_ignores_stem(tmp_path):
+    from test_midi import make_mid
+
     mid = tmp_path / "a.mid"
-    mid.write_bytes(b"")
-    assert main(["midi", str(mid), "-o", str(tmp_path / "o.wav"), "--separate"]) == 1
-    assert "só vale para áudio" in capsys.readouterr().err
+    make_mid(mid, [(0, 60, 0, 2)])
+    res = process(str(mid), tmp_path / "work", None, "other")  # .mid não passa pelo Demucs
+    assert res.stem == "mix"
 
 
 def test_default_stem_is_other():
-    from coil_prep.cli import build_parser
-
-    args = build_parser().parse_args(["midi", "a.mp3", "-o", "o.wav", "--separate"])
-    assert args.stem == "other"
+    assert sep.DEFAULT_STEM == "other"

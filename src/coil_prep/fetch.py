@@ -26,11 +26,11 @@ def _load_ydl():
     return YoutubeDL
 
 
-def fetch(url: str, out_dir: Path = DEFAULT_DIR, mp3: bool = False, ydl_cls=None) -> Path:
+def fetch(url: str, out_dir: Path = DEFAULT_DIR, ydl_cls=None) -> Path:
     """Baixa o melhor áudio de `url` para `out_dir` como WAV 44,1 kHz; devolve o caminho do WAV.
 
     WAV é o formato de trabalho: converter de novo para MP3 adicionaria mais uma geração de perda
-    (a fonte do YouTube já é Opus/AAC). `mp3=True` gera também um .mp3 ao lado.
+    (a fonte do YouTube já é Opus/AAC).
     """
     if not is_url(url):
         raise FetchError(f"não é uma URL http(s): {url}")
@@ -59,9 +59,4 @@ def fetch(url: str, out_dir: Path = DEFAULT_DIR, mp3: bool = False, ydl_cls=None
         raise FetchError(f"falha ao baixar: {e}") from e
     if not wav.exists():
         raise FetchError(f"WAV esperado não foi criado: {wav}")
-    if mp3:
-        from .ffmpeg import run_ffmpeg
-
-        mp3_path = wav.with_suffix(".mp3")
-        run_ffmpeg(["-y", "-i", str(wav), "-c:a", "libmp3lame", "-q:a", "2", str(mp3_path)])
     return wav

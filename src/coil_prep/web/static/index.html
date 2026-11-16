@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coil-prep</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1b1f; --muted:#62666e; --card:#f4f5f8; --line:#d5d8df; --accent:#5b3df5; --accent-fg:#fff; --bad:#c62828; --warn:#8a5a00; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#121216; --fg:#ececf1; --muted:#9aa0ab; --card:#1c1c23; --line:#33343d; --accent:#8c78ff; --accent-fg:#101014; --bad:#ff7b72; --warn:#e3b341; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:8px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:12px 0 4px; }
+  label:first-child { margin-top:0; }
+  input[type=url], input[type=file], select { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  .tabs { display:flex; gap:8px; margin-bottom:12px; }
+  .tabs button { flex:1; }
+  button { min-height:44px; padding:8px 14px; font:inherit; font-weight:600; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); width:100%; margin-top:16px; }
+  button[aria-pressed=true] { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  audio { width:100%; margin:4px 0 12px; }
+  .hidden { display:none; }
+  .muted { color:var(--muted); }
+  .error { color:var(--bad); white-space:pre-wrap; }
+  .warn { color:var(--warn); }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-2px; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  a.dl { display:inline-block; margin-top:4px; color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>coil-prep</h1>
+  <p class="sub">Melodia em onda quadrada para a bobina. Comece sempre com o <strong>volume baixo</strong>.</p>
+
+  <form id="form" class="card">
+    <div class="tabs" role="group" aria-label="Fonte">
+      <button type="button" id="tab-url" aria-pressed="true">Link</button>
+      <button type="button" id="tab-file" aria-pressed="false">Arquivo</button>
+    </div>
+    <div id="box-url">
+      <label for="url">Link do vídeo (YouTube etc.)</label>
+      <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+    </div>
+    <div id="box-file" class="hidden">
+      <label for="file">Arquivo de áudio ou .mid (até 100 MB)</label>
+      <input id="file" type="file" accept="audio/*,.mid,.midi,.opus,.webm">
+    </div>
+    <label for="stem">Som a usar</label>
+    <select id="stem">
+      <option value="other">other: melodia em sintes (padrão)</option>
+      <option value="vocals">vocals: voz cantada</option>
+      <option value="mix">mix completo (sem separar)</option>
+    </select>
+    <button class="primary" id="go" type="submit">Gerar</button>
+    <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos.</p>
+  </form>
+
+  <section id="status" class="card hidden" aria-live="polite"></section>
+
+  <section id="result" class="card hidden">
+    <label>Resultado (onda quadrada)</label>
+    <audio id="audio-result" controls preload="none"></audio>
+    <div id="box-original">
+      <label>Original</label>
+      <audio id="audio-original" controls preload="none"></audio>
+    </div>
+    <p id="summary" class="muted"></p>
+    <p id="warnings" class="warn"></p>
+    <a id="download" class="dl">Baixar WAV</a>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let mode = "url", timer = null;
+
+function setMode(m) {
+  mode = m;
+  $("tab-url").setAttribute("aria-pressed", m === "url");
+  $("tab-file").setAttribute("aria-pressed", m === "file");
+  $("box-url").classList.toggle("hidden", m !== "url");
+  $("box-file").classList.toggle("hidden", m !== "file");
+}
+$("tab-url").onclick = () => setMode("url");
+$("tab-file").onclick = () => setMode("file");
+
+function showStatus(html, isError) {
+  const s = $("status");
+  s.classList.remove("hidden");
+  s.className = "card" + (isError ? " error" : "");
+  s.textContent = "";
+  if (!isError) { const sp = document.createElement("span"); sp.className = "spin"; s.appendChild(sp); }
+  s.appendChild(document.createTextNode(html));
+}
+
+function showResult(job) {
+  const r = job.result, base = `/api/jobs/${job.id}/audio/`;
+  $("status").classList.add("hidden");
+  $("result").classList.remove("hidden");
+  $("audio-result").src = base + "result";
+  $("box-original").classList.toggle("hidden", !r.has_original);
+  if (r.has_original) $("audio-original").src = base + "original";
+  $("download").href = base + "result?download=true";
+  $("download").setAttribute("download", r.filename);
+  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS`;
+  const w = [];
+  if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
+  if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
+  $("warnings").textContent = w.join(" ");
+}
+
+async function poll(id) {
+  try {
+    const res = await fetch(`/api/jobs/${id}`);
+    const job = await res.json();
+    if (job.status === "done") { finish(); showResult(job); return; }
+    if (job.status === "error") { finish(); showStatus("Erro: " + job.error, true); return; }
+    showStatus(job.message);
+  } catch (e) {
+    finish(); showStatus("Perdi a conexão com o servidor.", true); return;
+  }
+  timer = setTimeout(() => poll(id), 1000);
+}
+
+function finish() { clearTimeout(timer); $("go").disabled = false; }
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData();
+  fd.append("stem", $("stem").value);
+  if (mode === "url") fd.append("url", $("url").value);
+  else if ($("file").files[0]) fd.append("file", $("file").files[0]);
+  $("go").disabled = true;
+  $("result").classList.add("hidden");
+  $("audio-result").pause(); $("audio-original").pause();
+  showStatus("Enviando...");
+  try {
+    const res = await fetch("/api/jobs", { method: "POST", body: fd });
+    const body = await res.json();
+    if (!res.ok) { finish(); showStatus(typeof body.detail === "string" ? body.detail : "Pedido inválido.", true); return; }
+    poll(body.id);
+  } catch (e) {
+    finish(); showStatus("Não consegui falar com o servidor.", true);
+  }
+});
+</script>
+</body>
+</html>
