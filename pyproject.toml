@@ -13,6 +13,7 @@ dependencies = ["numpy", "mido"]
 
 [project.optional-dependencies]
 separate = ["demucs"]
+youtube = ["yt-dlp"]
 # áudio -> notas; no Linux exige Python 3.10 ou 3.11. numpy<2 (TensorFlow) e setuptools<81 (resampy usa pkg_resources)
 midi = ["basic-pitch", "numpy<2", "setuptools<81"]
 dev = ["pytest", "ruff"]

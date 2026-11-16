@@ -98,6 +98,16 @@ coil-prep check saida.wav                          # exit code 1 se pico > -3 dB
 
 O `prep` sempre mede o resultado ao final e avisa se o pico passou de -3 dBFS. Saída: WAV 16-bit mono, 44,1 kHz (`--rate` altera). O `check` decodifica via ffmpeg, então lê qualquer formato.
 
+## Baixar áudio de uma URL (`fetch`)
+
+```bash
+uv pip install -e ".[youtube]"                         # yt-dlp
+coil-prep fetch "https://www.youtube.com/watch?v=..." -d input/   # gera input/<titulo> [id].wav
+coil-prep fetch URL --mp3                              # gera também o .mp3
+```
+
+O WAV (44,1 kHz) é o formato de trabalho: a fonte do YouTube já é Opus/AAC, e passar por MP3 adicionaria mais uma geração de perda. Baixe só conteúdo que você tem direito de usar (os termos do YouTube restringem downloads fora dos meios oficiais); o yt-dlp quebra quando o YouTube muda, então atualize com `uv pip install -U yt-dlp`. Nunca versione o áudio.
+
 ## Modo melodia (`midi`): o caminho principal
 
 Filtrar uma mixagem cheia (`prep`) deixa bateria, baixo e sintes dentro da faixa, e a bobina toca **uma nota por vez**, então vira ruído. O `midi` extrai só a **melodia**, como alguém murmurando:

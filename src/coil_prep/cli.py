@@ -5,6 +5,8 @@ from pathlib import Path
 from . import __version__
 from .analysis import Report, analyze
 from .calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
+from .fetch import DEFAULT_DIR as FETCH_DIR
+from .fetch import FetchError, fetch
 from .ffmpeg import FfmpegError, decode_mono, prep_file
 from .midi import (
     MIDI_EXTS,
@@ -172,6 +174,13 @@ def cmd_midi(args) -> int:
     return 0 if is_ok(report, DEFAULT_MAX_PEAK) else 1
 
 
+def cmd_fetch(args) -> int:
+    wav = fetch(args.url, args.out_dir, mp3=args.mp3)
+    print(f"{args.url} -> {wav}" + (f" (+ {wav.with_suffix('.mp3')})" if args.mp3 else ""))
+    print("aviso: baixe só conteúdo que você tem direito de usar; não versione áudio.")
+    return 0
+
+
 def add_separate_args(parser) -> None:
     parser.add_argument(
         "--separate", action="store_true", help="isola um stem com Demucs antes (extra [separate])"
@@ -204,6 +213,16 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--rate", type=int, default=44100, help="sample rate de saída (padrão 44100)")
     add_separate_args(prep)
     prep.set_defaults(func=cmd_prep)
+
+    fetch_p = sub.add_parser(
+        "fetch", help="baixa o áudio de uma URL (YouTube) como WAV (extra [youtube])"
+    )
+    fetch_p.add_argument("url", help="URL do vídeo")
+    fetch_p.add_argument(
+        "-d", "--out-dir", type=Path, default=FETCH_DIR, help="pasta de saída (padrão input/)"
+    )
+    fetch_p.add_argument("--mp3", action="store_true", help="gera também um .mp3 ao lado do WAV")
+    fetch_p.set_defaults(func=cmd_fetch)
 
     check = sub.add_parser("check", help="reporta pico, RMS e clipping")
     check.add_argument("file", type=Path)
@@ -268,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except FfmpegError as e:
+    except (FfmpegError, FetchError) as e:
         print(f"erro: {e}", file=sys.stderr)
         return 2
 
