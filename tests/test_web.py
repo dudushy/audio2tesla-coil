@@ -220,3 +220,9 @@ def test_export_mp3_and_invalid_format(client, tmp_path):
     assert ".mp3" in mp3.headers["content-disposition"]
     assert client.get(base + "?format=ogg").status_code == 422
     assert client.get(f"/api/jobs/{job['id']}/audio/original?format=mp3").status_code == 404
+
+
+def test_editor_static_assets_are_served(client):
+    r = client.get("/static/editor.js")
+    assert r.status_code == 200 and "PianoRoll" in r.text
+    assert "/static/editor.js" in client.get("/").text

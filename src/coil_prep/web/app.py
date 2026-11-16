@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import feedback
@@ -241,6 +242,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         save_profile(profile, data_dir / "device.json")
         return {"min_hz": profile.min_hz, "max_hz": profile.max_hz}
 
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
 
