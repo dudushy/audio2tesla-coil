@@ -31,8 +31,6 @@ def load_profile(path: Path) -> Profile:
             float(data["min_hz"]), float(data["max_hz"]), str(data.get("name", "plasma-speaker"))
         )
     except FileNotFoundError:
-        raise ValueError(
-            f"perfil não encontrado: {path} (crie com `coil-prep calibrate save`)"
-        ) from None
+        raise ValueError(f"perfil não encontrado: {path} (calibre no app)") from None
     except (KeyError, TypeError, json.JSONDecodeError) as e:
         raise ValueError(f"perfil inválido em {path}: {e!r}") from None

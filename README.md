@@ -2,158 +2,65 @@
 
 🇧🇷 Português · [🇬🇧 English](README.en.md)
 
-CLI em Python que prepara faixas de áudio para tocar em um **plasma speaker** (mini bobina de Tesla musical, modo "square wave music") ligado por cabo P2 (3,5 mm) a um notebook.
+App web (roda em Docker) que transforma uma música (link do YouTube ou arquivo) na **melodia em onda quadrada**, pronta para tocar em um **plasma speaker** (mini bobina de Tesla musical) ligado por cabo P2 (3,5 mm) a um notebook.
 
 ## O que é e o que não é
 
-O plasma speaker reproduz uma onda quadrada de baixa fidelidade, como um tweeter. Por isso "limpar" o áudio aqui **não é denoise**: é simplificar (mono, sem graves nem agudos extremos) e **evitar clipping**, porque sinal alto demais distorce.
+A bobina toca **uma nota por vez** como onda quadrada, de baixa fidelidade. Por isso o app não "limpa" a mixagem: ele extrai só a **melodia**, como alguém murmurando, e a gera em onda quadrada dentro da faixa de frequência que a bobina toca bem.
 
-**Limitações:** não é hi-fi. Música com muitos instrumentos soa embolada; melodias simples e uma nota por vez soam melhor. Os valores dos presets são pontos de partida e devem ser validados de ouvido.
-
-## Status
-
-| Recurso | Status |
-|---|---|
-| `prep`: mono, passa-alta/baixa e limiter (ffmpeg), presets, lote | ✅ |
-| `check`: pico, RMS e clipping | ✅ |
-| `calibrate`: tons de teste + perfil da bobina (faixa mín/máx de Hz) | ✅ |
-| `midi`: melodia de `.mid` ou áudio → onda quadrada monofônica, dentro do perfil | ✅ (experimental) |
-| `--separate`: isola um stem com Demucs antes do `prep`/`midi` | ✅ (experimental) |
-
-## Instalação
-
-Requisitos: Python 3.10+ e [ffmpeg](https://ffmpeg.org/) no `PATH`. Para `midi` com áudio, use Python 3.10 ou 3.11 (veja abaixo).
-
-**Linux** (bash/zsh) ou **WSL / Ubuntu**
-```bash
-sudo apt install ffmpeg python3-venv
-git clone https://github.com/dudushy/audio2tesla-coil
-cd audio2tesla-coil
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+```
+link ou arquivo → (Demucs: isola um stem) → notas (Basic Pitch ou .mid) → 1 voz por instante
+→ oitava pelo contorno dentro da faixa da bobina → onda quadrada (pico -8 dBFS) → WAV
 ```
 
-**Linux com Python 3.11 via [uv](https://docs.astral.sh/uv/) (recomendado para `midi` com áudio e `--separate`)**
+**Limitações:** não é hi-fi; em mixagem cheia a transcrição erra e a nota mais aguda nem sempre é a melodia (o app avisa quando mais de 30% do tempo tem notas sobrepostas). Um `.mid` de melodia costuma dar o melhor resultado.
 
-O Basic Pitch (extra `[midi]`) não instala em Python 3.12+ (por exemplo, o 3.14 que algumas distros trazem). O `uv` baixa o 3.11 sozinho, sem mexer no Python do sistema:
-```bash
-sudo apt install ffmpeg
-curl -LsSf https://astral.sh/uv/install.sh | sh        # instala o uv (ou: pipx install uv)
-git clone https://github.com/dudushy/audio2tesla-coil
-cd audio2tesla-coil
-uv venv --python 3.11 ~/.venvs/coil-prep
-source ~/.venvs/coil-prep/bin/activate
-uv pip install -e ".[midi,separate]"                   # Basic Pitch + Demucs (vários GB)
-coil-prep --version
-```
-O extra `[midi]` já fixa `numpy<2` e `setuptools<81` (exigidos pelo TensorFlow e pelo resampy); não instale versões mais novas por cima. Sem esses extras (só `pip install -e .`) funcionam `prep`, `check`, `calibrate` e `midi` com `.mid`.
+## Como usar
 
-**PowerShell (Windows)**
-```powershell
-winget install Gyan.FFmpeg        # abra um novo terminal depois
-git clone https://github.com/dudushy/audio2tesla-coil
-cd audio2tesla-coil
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e .
-```
-
-Dica: o áudio sai pelo P2 do sistema onde você toca o WAV; toque no mesmo sistema onde gerou, ou copie o arquivo.
-
-## Fluxo completo (música → bobina)
-
-Trabalhe numa pasta própria: `device.json` e `separated/` (cache dos stems) são criados **na pasta atual**.
-```bash
-mkdir -p ~/WorkspaceLinux/tesla-coil/{input,output} && cd ~/WorkspaceLinux/tesla-coil
-source ~/.venvs/coil-prep/bin/activate
-
-# 1) uma vez: descobrir a faixa da bobina de ouvido (volume BAIXO)
-coil-prep calibrate tones -o output/calibrate.wav     # toca 100..2000 Hz, um tom a cada 2 s
-coil-prep calibrate save --min 100 --max 1000          # os Hz que soaram como nota clara
-
-# 2) por música: melodia monofônica (stem "other" é o padrão do --separate)
-coil-prep midi input/musica.mp3 -o output/musica.wav --profile device.json --separate
-coil-prep check output/musica.wav                      # pico e clipping
-
-# alternativa leve: música com muito instrumento -> filtros (sem melodia)
-coil-prep prep input/musica.mp3 -o output/musica_prep.wav --profile device.json
-```
-Só o `prep` aceita pasta (lote); o `midi` processa um arquivo por vez. O primeiro `--separate` baixa o modelo do Demucs e leva alguns minutos por música em CPU; depois o stem fica em `separated/` e rodar de novo é rápido. Comece sempre com o **volume baixo** na bobina.
-
-## Uso
+Requisitos: [Docker](https://docs.docker.com/engine/install/) com Compose.
 
 ```bash
-coil-prep prep entrada.mp3 -o saida.wav            # preset default
-coil-prep prep entrada.mp3 -o saida.wav --preset vocal
-coil-prep prep entrada.mp3 -o saida.wav --highpass 200 --lowpass 5000 --limit 0.6
-coil-prep prep minhas_musicas/ -o saida/           # lote (mp3, wav, flac, ogg, m4a)
-coil-prep check saida.wav                          # exit code 1 se pico > -3 dBFS ou clipping (--max-peak muda o limite)
+git clone https://github.com/dudushy/audio2tesla-coil && cd audio2tesla-coil
+docker compose up --build
 ```
 
-| Preset | Passa-alta | Passa-baixa | Limite |
-|---|---|---|---|
-| `default` | 150 Hz | 8000 Hz | 0.7 (~ -3 dBFS) |
-| `vocal` | 200 Hz | 4000 Hz | 0.7 |
-| `safe` | 150 Hz | 6000 Hz | 0.5 (~ -6 dBFS) |
+Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 
-O `prep` sempre mede o resultado ao final e avisa se o pico passou de -3 dBFS. Saída: WAV 16-bit mono, 44,1 kHz (`--rate` altera). O `check` decodifica via ffmpeg, então lê qualquer formato.
+1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB).
+2. Escolha o **som a usar**: `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (música cantada) ou `mix` (sem separar).
+3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o WAV.
 
-## Modo melodia (`midi`): o caminho principal
+O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma da bobina. **Comece com o volume BAIXO.**
 
-Filtrar uma mixagem cheia (`prep`) deixa bateria, baixo e sintes dentro da faixa, e a bobina toca **uma nota por vez**, então vira ruído. O `midi` extrai só a **melodia**, como alguém murmurando:
+- O 1º uso baixa os pesos do Demucs; a separação roda em **CPU** e leva alguns minutos por música. O resultado fica em cache: testar outro stem do mesmo arquivo é mais rápido.
+- Os dados ficam em `./data` (`input/`, `separated/`, `output/`; ignorados pelo git). Os pesos do Demucs ficam em um volume Docker (`coil-cache`).
+- **Faixa da bobina:** sem calibragem o app usa 100–800 Hz. Para usar a sua, crie `data/device.json` com `{"min_hz": 100, "max_hz": 1000}` (uma tela de calibragem vem em um próximo PR). Faixas com menos de 1 oitava são recusadas.
+- A porta fica só em `127.0.0.1`: a API não tem autenticação e baixa vídeos a pedido. Não a exponha na rede sem proteção.
 
-```
-.mid ou áudio → notas → 1 voz por instante (amplitude + altura + continuidade) → limpa fragmentos → oitava pelo contorno dentro da faixa da bobina → onda quadrada
-```
-```bash
-coil-prep midi musica.mid -o saida.wav --profile device.json   # .mid: leve, só numpy + mido
-pip install -e ".[midi]"                                        # extra p/ áudio (Basic Pitch)
-coil-prep midi musica.mp3 -o saida.wav --profile device.json
-```
-Opções: `--voices N` (padrão 1), `--min-note S` (descarta notas menores que S segundos, padrão 0,06), `--gap S` (silêncio entre notas coladas ou repetidas, padrão 0,02), `--min-hz/--max-hz` (sobrescrevem o perfil; sem perfil usa 100–800 Hz), `--peak-db` (padrão -8).
+### Baixar de links
 
-Limpeza de notas (1 voz): `--select weighted|skyline` (padrão `weighted`: pontua amplitude, altura e proximidade da nota anterior, o que ignora chiado agudo fraco e baixo sustentado; `skyline` = sempre a mais aguda, comportamento antigo), `--merge-gap S` (junta fragmentos da mesma nota separados por menos de S s, padrão 0,02; 0 desliga; notas repetidas que encostam não são juntadas) e `--detect-min-note MS` (menor nota que o Basic Pitch detecta, padrão 80 ms; o dele é 127,7). A oitava de cada nota é escolhida pelo contorno (a mais próxima da nota anterior dentro da faixa), sem saltos de oitava falsos.
-
-- Uma faixa de 3 oitavas (como 100–800 Hz) sempre comporta qualquer nota movendo de oitava, sem perder a melodia; faixas com menos de 1 oitava dão erro.
-- **Limitação:** em mixagem cheia a transcrição erra e "a nota mais aguda" nem sempre é a melodia. Um `.mid` de melodia costuma dar resultado melhor; use `--separate` para isolar um stem antes (abaixo). O `midi` avisa quando mais de 30% do tempo tem notas sobrepostas, sinal de que a melodia pode sair errada.
-- **Extra `[midi]` (Basic Pitch):** no Linux exige **Python 3.10 ou 3.11** (as dependências `tensorflow<2.15.1` e `tflite-runtime` não têm wheel para 3.12+). O modo `.mid` funciona em qualquer Python 3.10+.
-
-### Isolar um stem antes (`--separate`)
-
-```bash
-pip install -e ".[separate]"        # Demucs + PyTorch (vários GB); o modelo baixa na 1ª execução
-coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate                  # stem "other" (padrão)
-coil-prep midi musica.mp3 -o saida.wav --profile device.json --separate --stem vocals
-```
-Roda em **CPU**, então leva alguns minutos por música. O stem fica em cache em `separated/` (ignorado pelo git): rodar de novo na mesma música é rápido. `--stem` aceita `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (melhor para música cantada), `bass` e `drums`. Também funciona no `prep`. Para o extra `[midi]` e o `[separate]` juntos, use Python 3.10 ou 3.11. Dica para economizar disco: instale antes `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
-
-## Calibragem da bobina
-
-Não adianta gerar frequências que a bobina não toca. Descubra a faixa de ouvido:
-```bash
-coil-prep calibrate tones -o calibrate.wav     # tons quadrados, volume baixo (-8 dBFS)
-# os tons vão de 100 a 2000 Hz (--freqs muda a grade); toque calibrate.wav na bobina (comece com volume BAIXO) e anote quais tons soam como nota clara
-coil-prep calibrate save --min 100 --max 1000  # grava device.json na pasta atual (ignorado pelo git)
-coil-prep prep entrada.mp3 -o saida.wav --profile device.json   # filtros = min/max do perfil
-```
-Prioridade dos cortes: `--highpass/--lowpass` > `--profile` > `--preset`.
+O download usa o [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) e converte para WAV 44,1 kHz, o formato de trabalho (a fonte do YouTube já é Opus/AAC; passar por MP3 só adicionaria perda). Baixe só conteúdo que você tem direito de usar: os termos do YouTube restringem downloads fora dos meios oficiais. O yt-dlp quebra quando o YouTube muda; atualize com `docker compose build --no-cache`. Nunca versione áudio.
 
 ## ⚠️ Segurança
 
-**Comece com o volume do notebook BAIXO** e aumente aos poucos com a bobina ligada. Alta tensão e arco de plasma: siga as instruções do fabricante, mantenha longe de crianças, eletrônicos e materiais inflamáveis.
+Alta tensão e arco de plasma: siga as instruções do fabricante, mantenha longe de crianças, eletrônicos e materiais inflamáveis, e comece sempre com o volume do notebook baixo.
 
 ## Desenvolvimento
 
 ```bash
-pip install -e ".[dev]"
+uv venv --python 3.11 && source .venv/bin/activate     # Basic Pitch exige Python 3.10 ou 3.11
+uv pip install -e ".[dev]"                             # + ".[midi,separate]" para áudio e Demucs
 ruff check . && pytest
+COIL_DATA=./data uvicorn coil_prep.web.app:create_default_app --factory --reload
 ```
-Os testes geram áudio sintético; **nunca commite música ou áudio com copyright** (o `.gitignore` bloqueia mp3/wav/flac/mid/ogg).
+
+Extras: `[midi]` (Basic Pitch; fixa `numpy<2` e `setuptools<81`) e `[separate]` (Demucs + PyTorch, vários GB). Sem eles, `.mid` e `mix` funcionam. Os testes geram áudio sintético; **nunca commite música ou áudio com copyright** (o `.gitignore` bloqueia mp3/wav/flac/mid/ogg).
 
 ## Créditos
 
-- [Demucs](https://github.com/adefossez/demucs) (MIT), separação de stems (`--separate`)
-- [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, Spotify), áudio → MIDI (extra `[midi]`)
+- [Demucs](https://github.com/adefossez/demucs) (MIT), separação de stems
+- [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, Spotify), áudio → MIDI
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense), download de áudio
 - [midi2tesla](https://github.com/yspacedev/midi2tesla): referência de ideia, nenhum código foi reutilizado
 
 ## Licença

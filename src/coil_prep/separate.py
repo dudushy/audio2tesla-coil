@@ -20,18 +20,19 @@ def separate(src: Path, stem: str = DEFAULT_STEM, out_dir: Path = DEFAULT_DIR) -
     """Devolve o WAV do stem pedido, rodando o Demucs só se ainda não existir em `out_dir`."""
     target = stem_path(src, stem, out_dir)
     if target.exists():
-        print(f"usando stem em cache: {target}", file=sys.stderr)
         return target
     if importlib.util.find_spec("demucs") is None:
         raise RuntimeError(
             "Demucs não instalado. Instale o extra: pip install -e '.[separate]'\n"
             "(baixa o PyTorch, vários GB; o modelo é baixado na primeira execução)"
         )
-    print(f"separando '{stem}' com Demucs em CPU (pode levar vários minutos)...", file=sys.stderr)
     cmd = [
         sys.executable, "-m", "demucs", "-d", "cpu", "-n", MODEL,
         "--two-stems", stem, "-o", str(out_dir), str(src),
     ]  # fmt: skip
-    if subprocess.run(cmd, check=False).returncode != 0 or not target.exists():
-        raise RuntimeError(f"Demucs falhou ao separar {src} (veja a saída acima)")
+    # saída capturada: o TUI ocupa o terminal, então o Demucs não pode escrever nele
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.returncode != 0 or not target.exists():
+        tail = (result.stderr or "").strip().splitlines()[-5:]
+        raise RuntimeError(f"Demucs falhou ao separar {src}:\n" + "\n".join(tail))
     return target

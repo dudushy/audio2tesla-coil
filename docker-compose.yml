@@ -1,0 +1,13 @@
+services:
+  coil:
+    build: .
+    ports:
+      # só no próprio notebook: a API não tem autenticação e baixa vídeos a pedido
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
+      - coil-cache:/cache
+    restart: unless-stopped
+
+volumes:
+  coil-cache:
