@@ -226,3 +226,55 @@ def test_editor_static_assets_are_served(client):
     r = client.get("/static/editor.js")
     assert r.status_code == 200 and "PianoRoll" in r.text
     assert "/static/editor.js" in client.get("/").text
+
+
+def read_feedback(tmp_path):
+    import json
+
+    path = tmp_path / "data" / "feedback.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_rating_without_edits_records_no_edit_event(client, tmp_path):
+    job = generate(client, tmp_path)
+    r = client.post(f"/api/jobs/{job['id']}/feedback", json={"rating": 1})
+    assert r.json() == {"ok": True, "edit_recorded": False}
+    kinds = [e["kind"] for e in read_feedback(tmp_path)]
+    assert kinds == ["rating"]
+
+
+def test_export_after_edit_records_diff_once_with_sidecar(client, tmp_path):
+    job = generate(client, tmp_path)
+    url = f"/api/jobs/{job['id']}"
+    cur = client.get(url + "/notes").json()["notes"]
+    edited = [{**cur[0], "pitch": 62}]  # 1ª movida +2, 2ª apagada
+    assert client.put(url + "/notes", json={"notes": edited}).status_code == 200
+    assert read_feedback(tmp_path) == []  # só editar não grava
+    client.get(url + "/audio/result?download=true")
+    client.get(url + "/audio/result?format=mp3&download=true")  # mesmo estado: não repete
+    events = read_feedback(tmp_path)
+    assert len(events) == 1 and events[0]["kind"] == "edit" and events[0]["job_id"] == job["id"]
+    assert events[0]["summary"] == {
+        "generated": 2,
+        "final": 1,
+        "kept": 0,
+        "deleted": 1,
+        "added": 0,
+        "moved": 1,
+    }
+    assert events[0]["moved"][0]["pitch_delta"] == 2 and events[0]["deleted"][0][2] == 64
+    import json
+
+    side = json.loads((tmp_path / "data" / events[0]["notes_file"]).read_text())
+    assert len(side["generated"]) == 2 and len(side["final"]) == 1
+
+
+def test_rating_after_edit_records_edit_then_rating_and_state_counts_only_ratings(client, tmp_path):
+    job = generate(client, tmp_path)
+    url = f"/api/jobs/{job['id']}"
+    cur = client.get(url + "/notes").json()["notes"]
+    client.put(url + "/notes", json={"notes": cur[:1]})
+    r = client.post(url + "/feedback", json={"rating": -1, "tag": "melodia errada"})
+    assert r.json()["edit_recorded"] is True
+    assert [e["kind"] for e in read_feedback(tmp_path)] == ["edit", "rating"]
+    assert client.get("/api/state").json()["ratings"] == 1  # o evento de edição não conta

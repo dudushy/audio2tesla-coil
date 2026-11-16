@@ -1,6 +1,7 @@
 """API web do coil-prep: recebe link ou arquivo, gera a melodia em onda quadrada e serve o áudio."""
 
 import hashlib
+import json
 import os
 import re
 import threading
@@ -139,10 +140,57 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             mp3 = path.with_suffix(".mp3")  # regenerado a cada pedido: o WAV pode ter sido editado
             with edit_lock:
                 wav_to_mp3(path, mp3)
+            if download:
+                record_edit(job)
             return FileResponse(
                 mp3, media_type="audio/mpeg", filename=mp3.name if download else None
             )
+        if download and which == "result":
+            record_edit(job)
         return FileResponse(path, filename=path.name if download else None)
+
+    def record_edit(job) -> bool:
+        """Registra no feedback o diff gerado x final (uma vez por estado das notas)."""
+        r = job.result
+        data = notes_mod.load(r.notes_file)
+        diff = feedback.diff_notes(data["generated"], data["current"])
+        if not feedback.has_changes(diff):
+            return False
+        key = hashlib.sha1(json.dumps([asdict(n) for n in data["current"]]).encode()).hexdigest()
+        if job.last_edit == key:
+            return False
+        job.last_edit = key
+        sidecar = data_dir / "feedback" / f"{job.id}.json"
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "job_id": job.id,
+                    "source": job.source,
+                    "stem": r.stem,
+                    "min_hz": r.min_hz,
+                    "max_hz": r.max_hz,
+                    "generated": [asdict(n) for n in data["generated"]],
+                    "final": [asdict(n) for n in data["current"]],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        feedback.record(
+            data_dir,
+            {
+                "kind": "edit",
+                "job_id": job.id,
+                "source": job.source,
+                "stem": r.stem,
+                "min_hz": r.min_hz,
+                "max_hz": r.max_hz,
+                **diff,
+                "notes_file": f"feedback/{job.id}.json",
+            },
+        )
+        return True
 
     def notes_payload(job, generated, current):
         r = job.result
@@ -192,9 +240,12 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(409, "este resultado já foi avaliado")
         job.rated = True
         r = job.result
+        edited = record_edit(job)
         feedback.record(
             data_dir,
             {
+                "kind": "rating",
+                "job_id": job.id,
                 "source": job.source,
                 "stem": r.stem,
                 "min_hz": r.min_hz,
@@ -205,7 +256,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
                 "tag": body.tag if body.rating == -1 else None,
             },
         )
-        return {"ok": True}
+        return {"ok": True, "edit_recorded": edited}
 
     @app.get("/api/state")
     def state():
@@ -218,7 +269,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         return {
             "profile": profile,
             "suggestion": feedback.suggest_stem(history),
-            "ratings": len(history),
+            "ratings": feedback.count_ratings(history),
             "tags": list(feedback.TAGS),
         }
 
