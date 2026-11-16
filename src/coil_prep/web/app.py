@@ -66,6 +66,10 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     def index():
         return FileResponse(STATIC / "index.html")
 
+    @app.get("/favicon.svg", include_in_schema=False)
+    def favicon():
+        return FileResponse(STATIC / "favicon.svg", media_type="image/svg+xml")
+
     @app.post("/api/jobs")
     async def create_job(
         stem: str = Form("other"),

@@ -157,3 +157,9 @@ def test_calibration_tones_are_a_wav_with_timing(client):
     assert info[0] == {"start": 0.0, "hz": 100} and info[1]["start"] == 2.0
     wav = client.get("/api/calibrate/tones.wav")
     assert wav.status_code == 200 and wav.content[:4] == b"RIFF"
+
+
+def test_favicon_is_served_and_linked(client):
+    r = client.get("/favicon.svg")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert 'href="/favicon.svg"' in client.get("/").text
