@@ -61,7 +61,7 @@ def process(
 
     if is_url(source):
         progress("Baixando áudio...")
-        original = fetch(source, workdir / "input")
+        original = fetch(source, workdir / "input", cookies=workdir / "cookies.txt")
     else:
         original = Path(source).expanduser()
         if not original.is_file():

@@ -75,3 +75,21 @@ def test_fetch_without_yt_dlp_gives_friendly_error(tmp_path, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(FetchError, match="yt-dlp"):
         fetch("https://youtu.be/abc", tmp_path)
+
+
+def test_fetch_passes_cookie_file_only_when_it_exists(tmp_path):
+    cookies = tmp_path / "cookies.txt"
+    fetch("https://youtu.be/abc", tmp_path, ydl_cls=FakeYDL, cookies=cookies)
+    assert "cookiefile" not in FakeYDL.last_opts
+    cookies.write_text("# Netscape HTTP Cookie File\n")
+    fetch("https://youtu.be/abc", tmp_path, ydl_cls=FakeYDL, cookies=cookies)
+    assert FakeYDL.last_opts["cookiefile"] == str(cookies)
+
+
+def test_bot_check_error_explains_cookies(tmp_path):
+    class BotYDL(FakeYDL):
+        def extract_info(self, url, download=True):
+            raise RuntimeError("ERROR: [youtube] x: Sign in to confirm you're not a bot.")
+
+    with pytest.raises(FetchError, match="data/cookies.txt"):
+        fetch("https://youtu.be/abc", tmp_path, ydl_cls=BotYDL)

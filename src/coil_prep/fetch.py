@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 DEFAULT_DIR = Path("input")
 RATE = 44100
+BOT_CHECK = "Sign in to confirm"
 
 
 class FetchError(RuntimeError):
@@ -26,7 +27,7 @@ def _load_ydl():
     return YoutubeDL
 
 
-def fetch(url: str, out_dir: Path = DEFAULT_DIR, ydl_cls=None) -> Path:
+def fetch(url: str, out_dir: Path = DEFAULT_DIR, ydl_cls=None, cookies: Path | None = None) -> Path:
     """Baixa o melhor áudio de `url` para `out_dir` como WAV 44,1 kHz; devolve o caminho do WAV.
 
     WAV é o formato de trabalho: converter de novo para MP3 adicionaria mais uma geração de perda
@@ -47,6 +48,8 @@ def fetch(url: str, out_dir: Path = DEFAULT_DIR, ydl_cls=None) -> Path:
         "postprocessors": postprocessors,
         "postprocessor_args": {"extractaudio": ["-ar", str(RATE)]},
     }
+    if cookies is not None and cookies.is_file():
+        opts["cookiefile"] = str(cookies)  # exportado do navegador pelo usuário (ver README)
     try:
         with ydl_cls(opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -56,7 +59,13 @@ def fetch(url: str, out_dir: Path = DEFAULT_DIR, ydl_cls=None) -> Path:
     except FetchError:
         raise
     except Exception as e:  # yt-dlp levanta DownloadError e variantes
-        raise FetchError(f"falha ao baixar: {e}") from e
+        msg = f"falha ao baixar: {e}"
+        if BOT_CHECK in str(e):
+            msg += (
+                "\nO YouTube pediu confirmação anti-bot. Exporte os cookies do YouTube para "
+                "data/cookies.txt (passo a passo no README) e tente de novo."
+            )
+        raise FetchError(msg) from e
     if not wav.exists():
         raise FetchError(f"WAV esperado não foi criado: {wav}")
     return wav

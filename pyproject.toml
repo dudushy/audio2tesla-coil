@@ -9,7 +9,7 @@ description = "Prepara áudio para tocar em plasma speaker / mini bobina de Tesl
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["numpy", "mido", "yt-dlp", "fastapi", "uvicorn", "python-multipart"]
+dependencies = ["numpy", "mido", "yt-dlp[default]", "fastapi", "uvicorn", "python-multipart"]
 
 [project.optional-dependencies]
 separate = ["demucs"]
