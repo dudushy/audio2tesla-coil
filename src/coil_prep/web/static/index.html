@@ -31,6 +31,12 @@
   .warn { color:var(--warn); }
   .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-2px; margin-right:6px; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  input[type=number] { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  details summary { cursor:pointer; font-weight:600; min-height:44px; display:flex; align-items:center; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-variant-numeric:tabular-nums; }
+  td, th { text-align:left; padding:2px 8px 2px 0; }
   a.dl { display:inline-block; margin-top:4px; color:var(--accent); }
 </style>
 </head>
@@ -58,6 +64,7 @@
       <option value="vocals">vocals: voz cantada</option>
       <option value="mix">mix completo (sem separar)</option>
     </select>
+    <p id="hint" class="muted hidden" style="margin:6px 0 0"></p>
     <button class="primary" id="go" type="submit">Gerar</button>
     <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos.</p>
   </form>
@@ -74,11 +81,38 @@
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
     <a id="download" class="dl">Baixar WAV</a>
+    <div id="rate" style="margin-top:16px">
+      <label>Como soou na bobina?</label>
+      <div class="row">
+        <button type="button" id="good">👍 Soou bem</button>
+        <button type="button" id="bad">👎 Soou ruim</button>
+      </div>
+      <div id="tag-box" class="hidden" style="margin-top:8px">
+        <select id="tag" aria-label="O que deu errado?"></select>
+        <button type="button" id="save-bad" style="margin-top:8px;width:100%">Salvar avaliação</button>
+      </div>
+    </div>
+    <p id="rate-msg" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <details id="cal">
+      <summary>Calibrar a bobina</summary>
+      <p class="muted">Faixa atual: <strong id="cal-current">100–800 Hz (padrão)</strong>. Toque os tons com o volume <strong>BAIXO</strong> na bobina, anote quais soam como nota clara e informe o menor e o maior Hz.</p>
+      <audio id="audio-tones" controls preload="none" src="/api/calibrate/tones.wav"></audio>
+      <table id="tone-table"></table>
+      <div class="row">
+        <div><label for="min-hz">Menor Hz</label><input id="min-hz" type="number" min="1" step="any" inputmode="decimal"></div>
+        <div><label for="max-hz">Maior Hz</label><input id="max-hz" type="number" min="1" step="any" inputmode="decimal"></div>
+      </div>
+      <button class="primary" id="save-cal" type="button">Salvar calibragem</button>
+      <p id="cal-msg" class="muted"></p>
+    </details>
   </section>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let mode = "url", timer = null;
+let mode = "url", timer = null, currentJob = null;
 
 function setMode(m) {
   mode = m;
@@ -100,6 +134,10 @@ function showStatus(html, isError) {
 }
 
 function showResult(job) {
+  currentJob = job.id;
+  $("rate").classList.remove("hidden");
+  $("tag-box").classList.add("hidden");
+  $("rate-msg").textContent = "";
   const r = job.result, base = `/api/jobs/${job.id}/audio/`;
   $("status").classList.add("hidden");
   $("result").classList.remove("hidden");
@@ -149,6 +187,68 @@ $("form").addEventListener("submit", async (ev) => {
     finish(); showStatus("Não consegui falar com o servidor.", true);
   }
 });
+
+async function sendFeedback(rating, tag) {
+  const res = await fetch(`/api/jobs/${currentJob}/feedback`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating, tag }),
+  });
+  if (res.ok) {
+    $("rate").classList.add("hidden");
+    $("rate-msg").textContent = "Avaliação salva. Obrigado! Ela ajuda a sugerir o melhor som nas próximas.";
+    loadState();
+  } else {
+    const body = await res.json().catch(() => ({}));
+    $("rate-msg").textContent = typeof body.detail === "string" ? body.detail : "Não consegui salvar a avaliação.";
+  }
+}
+$("good").onclick = () => sendFeedback(1, null);
+$("bad").onclick = () => $("tag-box").classList.remove("hidden");
+$("save-bad").onclick = () => sendFeedback(-1, $("tag").value);
+
+async function loadState() {
+  try {
+    const st = await (await fetch("/api/state")).json();
+    const sel = $("tag");
+    if (!sel.options.length) st.tags.forEach((t) => sel.add(new Option(t, t)));
+    if (st.ratings > 0) {
+      $("stem").value = st.suggestion;
+      $("hint").textContent = `Sugestão pelo histórico (${st.ratings} avaliação(ões)): ${st.suggestion}.`;
+      $("hint").classList.remove("hidden");
+    }
+    if (st.profile) {
+      $("cal-current").textContent = `${st.profile.min_hz}–${st.profile.max_hz} Hz`;
+      $("min-hz").value = st.profile.min_hz;
+      $("max-hz").value = st.profile.max_hz;
+    }
+  } catch (e) { /* sem estado: a página segue com os padrões */ }
+}
+
+async function loadTones() {
+  try {
+    const info = await (await fetch("/api/calibrate")).json();
+    const t = $("tone-table");
+    t.textContent = "";
+    info.tones.forEach((x) => {
+      const tr = t.insertRow();
+      tr.insertCell().textContent = `${x.start.toFixed(1)} s`;
+      tr.insertCell().textContent = `${x.hz} Hz`;
+    });
+  } catch (e) { /* tabela é só apoio */ }
+}
+
+$("save-cal").onclick = async () => {
+  const res = await fetch("/api/profile", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ min_hz: parseFloat($("min-hz").value), max_hz: parseFloat($("max-hz").value) }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) { $("cal-msg").textContent = "Calibragem salva."; loadState(); }
+  else $("cal-msg").textContent = typeof body.detail === "string" ? body.detail : "Valores inválidos.";
+};
+
+$("cal").addEventListener("toggle", () => { if ($("cal").open) loadTones(); });
+loadState();
 </script>
 </body>
 </html>

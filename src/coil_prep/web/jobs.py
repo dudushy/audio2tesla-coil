@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..fetch import FetchError
+from ..fetch import FetchError, is_url
 from ..ffmpeg import FfmpegError
 from ..pipeline import OVERLAP_WARN, Result, process
 from ..profile import load_profile
@@ -23,6 +23,8 @@ class Job:
     message: str = "Na fila..."
     error: str | None = None
     result: Result | None = None
+    source: str = ""  # link ou nome do arquivo, para o histórico de avaliações
+    rated: bool = False
     created: float = field(default_factory=lambda: __import__("time").time())
 
     def to_dict(self) -> dict:
@@ -54,7 +56,8 @@ class JobManager:
         self._lock = threading.Lock()
 
     def submit(self, source: str, stem: str) -> Job:
-        job = Job(id=uuid.uuid4().hex)
+        label = source if is_url(source) else Path(source).name
+        job = Job(id=uuid.uuid4().hex, source=label)
         with self._lock:
             self._jobs[job.id] = job
             while len(self._jobs) > MAX_JOBS:

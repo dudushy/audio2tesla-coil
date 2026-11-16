@@ -6,16 +6,48 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 
+from .. import feedback
+from ..calibrate import DEFAULT_FREQS, square_tones
 from ..fetch import is_url
-from ..midi import MIDI_EXTS
+from ..midi import MIDI_EXTS, RATE
 from ..pipeline import STEM_CHOICES
+from ..profile import Profile, load_profile, save_profile
 from .jobs import JobManager
 
 STATIC = Path(__file__).parent / "static"
 UPLOAD_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".webm", *MIDI_EXTS}
 MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB
+TONE_SECONDS, TONE_GAP = 1.5, 0.5
+TONE_PEAK_DB = -8.0  # mesmo nível da saída do app
+
+
+class FeedbackIn(BaseModel):
+    rating: int
+    tag: str | None = None
+
+
+class ProfileIn(BaseModel):
+    min_hz: float
+    max_hz: float
+
+
+def tones_wav() -> bytes:
+    import io
+    import wave
+
+    import numpy as np
+
+    samples = square_tones(DEFAULT_FREQS, TONE_SECONDS, TONE_GAP, TONE_PEAK_DB)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
+    return buf.getvalue()
 
 
 def safe_name(filename: str) -> tuple[str, str]:
@@ -79,6 +111,69 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         if path is None or not path.is_file():
             raise HTTPException(404, "áudio indisponível")
         return FileResponse(path, filename=path.name if download else None)
+
+    @app.post("/api/jobs/{job_id}/feedback")
+    def job_feedback(job_id: str, body: FeedbackIn):
+        job = jobs.get(job_id)
+        if job is None or job.result is None:
+            raise HTTPException(404, "job não encontrado ou ainda sem resultado")
+        if body.rating not in (1, -1):
+            raise HTTPException(422, "rating deve ser 1 ou -1")
+        if body.tag is not None and body.tag not in feedback.TAGS:
+            raise HTTPException(422, "tag inválida")
+        if job.rated:
+            raise HTTPException(409, "este resultado já foi avaliado")
+        job.rated = True
+        r = job.result
+        feedback.record(
+            data_dir,
+            {
+                "source": job.source,
+                "stem": r.stem,
+                "min_hz": r.min_hz,
+                "max_hz": r.max_hz,
+                "notes": r.notes,
+                "overlap": round(r.overlap, 3),
+                "rating": body.rating,
+                "tag": body.tag if body.rating == -1 else None,
+            },
+        )
+        return {"ok": True}
+
+    @app.get("/api/state")
+    def state():
+        try:
+            p = load_profile(data_dir / "device.json")
+            profile = {"min_hz": p.min_hz, "max_hz": p.max_hz}
+        except ValueError:
+            profile = None
+        history = feedback.load(data_dir)
+        return {
+            "profile": profile,
+            "suggestion": feedback.suggest_stem(history),
+            "ratings": len(history),
+            "tags": list(feedback.TAGS),
+        }
+
+    @app.get("/api/calibrate")
+    def calibrate_info():
+        step = TONE_SECONDS + TONE_GAP
+        return {"tones": [{"start": i * step, "hz": f} for i, f in enumerate(DEFAULT_FREQS)]}
+
+    @app.get("/api/calibrate/tones.wav")
+    def calibrate_tones():
+        return Response(tones_wav(), media_type="audio/wav")
+
+    @app.put("/api/profile")
+    def save_profile_route(body: ProfileIn):
+        try:
+            profile = Profile(body.min_hz, body.max_hz)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        if profile.max_hz < 2 * profile.min_hz:
+            raise HTTPException(422, "a faixa precisa ter pelo menos 1 oitava (máx >= 2x mín)")
+        save_profile(profile, data_dir / "device.json")
+        return {"min_hz": profile.min_hz, "max_hz": profile.max_hz}
 
     return app
 
