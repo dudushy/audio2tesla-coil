@@ -38,6 +38,11 @@
   details summary { cursor:pointer; font-weight:600; min-height:44px; display:flex; align-items:center; }
   table { width:100%; border-collapse:collapse; margin:8px 0; font-variant-numeric:tabular-nums; }
   td, th { text-align:left; padding:2px 8px 2px 0; }
+  canvas#roll { width:100%; display:block; touch-action:none; border:1px solid var(--line); border-radius:8px; outline-offset:2px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; align-items:center; }
+  .toolbar button { min-height:40px; padding:4px 10px; }
+  .toolbar label { margin:0; font-weight:400; display:inline-flex; align-items:center; gap:6px; }
+  details.help { margin:8px 0; }
   a.dl { display:inline-block; margin-top:4px; color:var(--accent); }
 </style>
 </head>
@@ -79,6 +84,26 @@
       <label>Original</label>
       <audio id="audio-original" controls preload="none"></audio>
     </div>
+    <div id="editor">
+      <label>Editor de notas</label>
+      <div class="toolbar">
+        <button type="button" id="ed-undo" title="Desfazer (Ctrl+Z)">↶ Desfazer</button>
+        <button type="button" id="ed-redo" title="Refazer (Ctrl+Shift+Z)">↷ Refazer</button>
+        <button type="button" id="ed-del" title="Excluir (Delete)">🗑 Excluir</button>
+        <button type="button" id="ed-zout" aria-label="Diminuir zoom">−</button>
+        <button type="button" id="ed-zin" aria-label="Aumentar zoom">+</button>
+        <label><input type="checkbox" id="ed-preview"> Ouvir nota ao editar</label>
+      </div>
+      <canvas id="roll" aria-label="Editor de notas (piano roll)"></canvas>
+      <div class="toolbar">
+        <button type="button" class="primary" id="ed-apply" style="margin:0;width:auto" disabled>Aplicar e ouvir</button>
+        <button type="button" id="ed-reset">Restaurar geradas</button>
+      </div>
+      <p id="ed-msg" class="muted" style="margin:4px 0"></p>
+      <details class="help"><summary>Como editar</summary>
+        <p class="muted">Clique numa nota para selecionar (Shift seleciona várias); arraste para mover no tempo e no tom; arraste as bordas para mudar a duração; clique duas vezes num espaço vazio para criar uma nota; Delete exclui; setas movem (Shift = passo maior); clique na régua ou num espaço vazio para posicionar o cursor. Notas tracejadas mostram o que o app gerou e você mudou ou apagou; notas vermelhas se sobrepõem (a bobina toca uma por vez, então a anterior será cortada). O tom fica sempre dentro da faixa calibrada. Depois de editar, clique em "Aplicar e ouvir".</p>
+      </details>
+    </div>
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
     <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a>
@@ -111,6 +136,7 @@
     </details>
   </section>
 </main>
+<script src="/static/editor.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let mode = "url", timer = null, currentJob = null;
@@ -134,8 +160,66 @@ function showStatus(html, isError) {
   s.appendChild(document.createTextNode(html));
 }
 
+let roll = null, previewCtx = null, baseUrl = "";
+
+function previewTone(p) {
+  if (!$("ed-preview").checked) return;
+  previewCtx = previewCtx || new AudioContext();
+  const o = previewCtx.createOscillator(), g = previewCtx.createGain();
+  o.type = "square"; o.frequency.value = 440 * 2 ** ((p - 69) / 12);
+  g.gain.value = 0.05; o.connect(g); g.connect(previewCtx.destination);
+  o.start(); o.stop(previewCtx.currentTime + 0.15);
+}
+
+async function loadNotes() {
+  const res = await fetch(`/api/jobs/${currentJob}/notes`);
+  if (!res.ok) return;
+  const d = await res.json();
+  if (!roll) {
+    roll = new PianoRoll($("roll"), {
+      onChange: () => { $("ed-apply").disabled = !roll.dirty; $("ed-msg").textContent = roll.dirty ? "Alterações ainda não aplicadas ao áudio." : ""; },
+      onSeek: (t) => { $("audio-result").currentTime = t; roll.setPlayhead(t); },
+      onPreview: previewTone,
+    });
+  }
+  roll.setData({ notes: d.notes, generated: d.generated, minPitch: d.min_pitch, maxPitch: d.max_pitch });
+  $("ed-apply").disabled = true; $("ed-msg").textContent = "";
+}
+
+async function putNotes(notes) {
+  const res = await fetch(`/api/jobs/${currentJob}/notes`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { $("ed-msg").textContent = typeof body.detail === "string" ? body.detail : "Não consegui aplicar as edições."; return false; }
+  roll.setData({ notes: body.notes, generated: body.generated, minPitch: body.min_pitch, maxPitch: body.max_pitch });
+  const a = $("audio-result"); a.src = `/api/jobs/${currentJob}/audio/result?v=${Date.now()}`;
+  $("summary").textContent = `${body.notes.length} trechos | faixa ${body.min_hz}–${body.max_hz} Hz | pico ${body.peak_db} dBFS`;
+  $("ed-apply").disabled = true; $("ed-msg").textContent = "Áudio atualizado.";
+  return true;
+}
+
+$("ed-apply").onclick = async () => { if (roll && await putNotes(roll.getNotes())) $("audio-result").play().catch(() => {}); };
+$("ed-reset").onclick = async () => {
+  if (!roll) return;
+  if (await putNotes(roll.generated.map((n) => ({ ...n })))) $("audio-result").play().catch(() => {});
+};
+$("ed-undo").onclick = () => roll && roll.undo();
+$("ed-redo").onclick = () => roll && roll.redo();
+$("ed-del").onclick = () => roll && roll.deleteSelected();
+$("ed-zin").onclick = () => roll && roll.zoom(1.3);
+$("ed-zout").onclick = () => roll && roll.zoom(1 / 1.3);
+$("audio-result").addEventListener("loadedmetadata", (e) => roll && roll.setAudioDuration(e.target.duration));
+$("audio-result").addEventListener("timeupdate", (e) => roll && roll.setPlayhead(e.target.currentTime));
+$("audio-result").addEventListener("play", function tick() {
+  const a = $("audio-result");
+  if (roll) roll.setPlayhead(a.currentTime);
+  if (!a.paused && !a.ended) requestAnimationFrame(tick);
+});
+
 function showResult(job) {
   currentJob = job.id;
+  loadNotes();
   $("rate").classList.remove("hidden");
   $("tag-box").classList.add("hidden");
   $("rate-msg").textContent = "";
