@@ -32,3 +32,9 @@ def decode_mono(path: Path) -> np.ndarray:
     """Decodifica qualquer formato para float32 mono (-1..1) na taxa original."""
     data = run_ffmpeg(["-i", str(path), "-vn", "-ac", "1", "-f", "f32le", "-"])
     return np.frombuffer(data, dtype="<f4")
+
+
+def wav_to_mp3(src: Path, dst: Path) -> None:
+    """MP3 VBR ~190 kbps (-q:a 2). Codec com perdas pode arredondar um pouco as quinas da quadrada."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg(["-y", "-i", str(src), "-vn", "-c:a", "libmp3lame", "-q:a", "2", str(dst)])

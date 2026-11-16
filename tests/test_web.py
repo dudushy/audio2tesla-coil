@@ -163,3 +163,60 @@ def test_favicon_is_served_and_linked(client):
     r = client.get("/favicon.svg")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
     assert 'href="/favicon.svg"' in client.get("/").text
+
+
+def dominant_hz_of(content, tmp_path, start, end):
+    import numpy as np
+
+    from coil_prep.ffmpeg import decode_mono
+    from coil_prep.midi import RATE
+
+    p = tmp_path / "x.wav"
+    p.write_bytes(content)
+    x = decode_mono(p)[int(start * RATE) : int(end * RATE)]
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+    return np.argmax(spec) * RATE / len(x)
+
+
+def test_get_notes_returns_generated_and_range(client, tmp_path):
+    job = generate(client, tmp_path)
+    r = client.get(f"/api/jobs/{job['id']}/notes").json()
+    assert r["min_pitch"] == 44 and r["max_pitch"] == 79
+    assert [n["pitch"] for n in r["notes"]] == [60, 64]
+    assert r["generated"] == r["notes"]
+
+
+def test_put_notes_rerenders_audio_and_keeps_generated(client, tmp_path):
+    job = generate(client, tmp_path)
+    url = f"/api/jobs/{job['id']}/notes"
+    cur = client.get(url).json()
+    # sobe a 1ª nota para A4 (440 Hz), apaga a 2ª
+    edited = [{**cur["notes"][0], "pitch": 69}]
+    r = client.put(url, json={"notes": edited})
+    assert r.status_code == 200 and [n["pitch"] for n in r.json()["notes"]] == [69]
+    again = client.get(url).json()
+    assert [n["pitch"] for n in again["generated"]] == [60, 64]  # geradas não mudam
+    audio = client.get(f"/api/jobs/{job['id']}/audio/result").content
+    assert abs(dominant_hz_of(audio, tmp_path, 0.1, 0.9) - 440) < 6
+    assert client.get(f"/api/jobs/{job['id']}").json()["result"]["segments"] == 1
+
+
+def test_put_notes_rejects_empty_and_out_of_range(client, tmp_path):
+    job = generate(client, tmp_path)
+    url = f"/api/jobs/{job['id']}/notes"
+    assert client.put(url, json={"notes": []}).status_code == 422
+    bad = [{"start": 0, "end": 1, "pitch": 20}]
+    r = client.put(url, json={"notes": bad})
+    assert r.status_code == 422 and "fora da faixa" in r.json()["detail"]
+    assert client.put("/api/jobs/x/notes", json={"notes": []}).status_code == 404
+
+
+def test_export_mp3_and_invalid_format(client, tmp_path):
+    job = generate(client, tmp_path)
+    base = f"/api/jobs/{job['id']}/audio/result"
+    mp3 = client.get(base + "?format=mp3&download=true")
+    assert mp3.status_code == 200 and mp3.headers["content-type"] == "audio/mpeg"
+    assert mp3.content[:3] == b"ID3" or mp3.content[0] == 0xFF
+    assert ".mp3" in mp3.headers["content-disposition"]
+    assert client.get(base + "?format=ogg").status_code == 422
+    assert client.get(f"/api/jobs/{job['id']}/audio/original?format=mp3").status_code == 404

@@ -81,7 +81,7 @@
     </div>
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
-    <a id="download" class="dl">Baixar WAV</a>
+    <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a>
     <div id="rate" style="margin-top:16px">
       <label>Como soou na bobina?</label>
       <div class="row">
@@ -147,6 +147,7 @@ function showResult(job) {
   if (r.has_original) $("audio-original").src = base + "original";
   $("download").href = base + "result?download=true";
   $("download").setAttribute("download", r.filename);
+  $("download-mp3").href = base + "result?format=mp3&download=true";
   $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS`;
   const w = [];
   if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
