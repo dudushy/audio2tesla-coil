@@ -24,7 +24,8 @@ Open **http://localhost:8000** in the browser of the laptop connected to the coi
 
 - First run downloads the Demucs weights; separation runs on **CPU** (a few minutes per song) and is cached.
 - Data lives in `./data` (git-ignored); model weights live in a Docker volume.
-- Without calibration the app uses 100-800 Hz. To use your range, create `data/device.json` with `{"min_hz": 100, "max_hz": 1000}` (a calibration screen is planned).
+- Without calibration the app uses 100-800 Hz. Use **Calibrar a bobina** on the page: play the test tones (volume LOW), note which sound clear, save min/max Hz (at least 1 octave). Stored in `data/device.json`.
+- Rate each result (👍/👎 + reason) after trying it on the coil; ratings go to `data/feedback.jsonl` and the app suggests the stem with the best average.
 - The port is bound to `127.0.0.1` only: the API has no authentication and downloads videos on request.
 - Download only content you have the right to use; YouTube's terms restrict downloads outside official means. Never commit audio.
 

@@ -99,3 +99,61 @@ def test_unknown_job_is_404(client):
 def test_safe_name():
     assert safe_name("../../etc/Música X!.MP3") == ("Música_X", ".mp3")
     assert safe_name("") == ("audio", "")
+
+
+def generate(client, tmp_path):
+    r = client.post(
+        "/api/jobs", data={"stem": "mix"}, files={"file": ("a.mid", midi_bytes(tmp_path))}
+    )
+    return wait_done(client, r.json()["id"])
+
+
+def test_feedback_is_saved_once_and_drives_suggestion(client, tmp_path):
+    assert client.get("/api/state").json()["suggestion"] == "other"
+    job = generate(client, tmp_path)
+    r = client.post(f"/api/jobs/{job['id']}/feedback", json={"rating": 1})
+    assert r.status_code == 200
+    assert client.post(f"/api/jobs/{job['id']}/feedback", json={"rating": 1}).status_code == 409
+    st = client.get("/api/state").json()
+    assert st["ratings"] == 1 and st["suggestion"] == "mix"  # único stem bem avaliado
+    line = (tmp_path / "data" / "feedback.jsonl").read_text().splitlines()
+    assert len(line) == 1 and '"rating": 1' in line[0]
+
+
+def test_bad_feedback_stores_tag_and_validates_input(client, tmp_path):
+    job = generate(client, tmp_path)
+    url = f"/api/jobs/{job['id']}/feedback"
+    assert client.post(url, json={"rating": 5}).status_code == 422
+    assert client.post(url, json={"rating": -1, "tag": "inventada"}).status_code == 422
+    assert client.post(url, json={"rating": -1, "tag": "picotado"}).status_code == 200
+    assert '"tag": "picotado"' in (tmp_path / "data" / "feedback.jsonl").read_text()
+
+
+def test_feedback_unknown_job_is_404(client):
+    assert client.post("/api/jobs/x/feedback", json={"rating": 1}).status_code == 404
+
+
+def test_calibration_roundtrip_and_validation(client, tmp_path):
+    assert client.get("/api/state").json()["profile"] is None
+    r = client.put("/api/profile", json={"min_hz": 120, "max_hz": 1000})
+    assert r.status_code == 200
+    assert client.get("/api/state").json()["profile"] == {"min_hz": 120.0, "max_hz": 1000.0}
+    assert (
+        client.put("/api/profile", json={"min_hz": 500, "max_hz": 600}).status_code == 422
+    )  # < 1 oitava
+    assert client.put("/api/profile", json={"min_hz": 900, "max_hz": 300}).status_code == 422
+    # a próxima geração usa a faixa salva
+    low = tmp_path / "low.mid"
+    make_mid(low, [(0, 36, 0, 2)])  # C2 65 Hz, abaixo de 120 Hz
+    r = client.post(
+        "/api/jobs", data={"stem": "mix"}, files={"file": ("low.mid", low.read_bytes())}
+    )
+    job = wait_done(client, r.json()["id"])
+    assert job["result"]["min_hz"] == 120.0 and job["result"]["max_hz"] == 1000.0
+
+
+def test_calibration_tones_are_a_wav_with_timing(client):
+    info = client.get("/api/calibrate").json()["tones"]
+    assert info[0] == {"start": 0.0, "hz": 100} and info[1]["start"] == 2.0
+    wav = client.get("/api/calibrate/tones.wav")
+    assert wav.status_code == 200 and wav.content[:4] == b"RIFF"

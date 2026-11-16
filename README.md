@@ -29,12 +29,13 @@ Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB).
 2. Escolha o **som a usar**: `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (música cantada) ou `mix` (sem separar).
 3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o WAV.
+4. Toque na bobina e **avalie** (👍/👎, com um motivo no 👎). As avaliações ficam em `data/feedback.jsonl` e o app passa a **sugerir o som** (stem) com a melhor média no seu histórico. Isso é só uma média por stem, sem machine learning: um modelo para escolher a nota da melodia só faria sentido com dezenas de avaliações.
 
 O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma da bobina. **Comece com o volume BAIXO.**
 
 - O 1º uso baixa os pesos do Demucs; a separação roda em **CPU** e leva alguns minutos por música. O resultado fica em cache: testar outro stem do mesmo arquivo é mais rápido.
 - Os dados ficam em `./data` (`input/`, `separated/`, `output/`; ignorados pelo git). Os pesos do Demucs ficam em um volume Docker (`coil-cache`).
-- **Faixa da bobina:** sem calibragem o app usa 100–800 Hz. Para usar a sua, crie `data/device.json` com `{"min_hz": 100, "max_hz": 1000}` (uma tela de calibragem vem em um próximo PR). Faixas com menos de 1 oitava são recusadas.
+- **Faixa da bobina:** sem calibragem o app usa 100–800 Hz. Abra **Calibrar a bobina** na página, toque os tons de teste (volume BAIXO), anote quais soam como nota clara e salve o menor e o maior Hz (a faixa precisa ter pelo menos 1 oitava). Fica em `data/device.json`.
 - A porta fica só em `127.0.0.1`: a API não tem autenticação e baixa vídeos a pedido. Não a exponha na rede sem proteção.
 
 ### Baixar de links
