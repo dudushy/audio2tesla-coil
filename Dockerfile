@@ -4,6 +4,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Deno: o yt-dlp precisa de um runtime JavaScript externo para resolver os desafios do YouTube
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
