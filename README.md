@@ -30,7 +30,8 @@ Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 2. Escolha o **som a usar**: `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (música cantada) ou `mix` (sem separar).
 3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o **WAV** (recomendado) ou o **MP3** (o codec com perdas pode arredondar um pouco as quinas da onda quadrada).
 4. **Edite as notas** (opcional) no piano roll: arraste para mover no tempo e no tom, arraste as bordas para mudar a duração, clique duas vezes para criar, Delete exclui, Ctrl+Z desfaz, Shift seleciona várias. As notas tracejadas mostram o que o app gerou e você mudou. O tom fica sempre dentro da faixa calibrada e a bobina toca uma nota por vez (sobreposição é cortada). Clique em **Aplicar e ouvir** para re-renderizar o áudio e exporte o WAV/MP3.
-5. Toque na bobina e **avalie** (👍/👎, com um motivo no 👎). As avaliações ficam em `data/feedback.jsonl` e o app passa a **sugerir o som** (stem) com a melhor média no seu histórico. Isso é só uma média por stem, sem machine learning: um modelo para escolher a nota da melodia só faria sentido com dezenas de avaliações.
+5. Ao exportar (ou avaliar) depois de editar, o app registra a **comparação técnica**: o que ele gerou x o que você deixou (notas apagadas, adicionadas e movidas, com as variações de tom e tempo). Vai para `data/feedback.jsonl` (evento `edit`) e as listas completas para `data/feedback/<job>.json`.
+6. Toque na bobina e **avalie** (👍/👎, com um motivo no 👎). As avaliações ficam em `data/feedback.jsonl` e o app passa a **sugerir o som** (stem) com a melhor média no seu histórico. Isso é só uma média por stem, sem machine learning: um modelo para escolher a nota da melodia só faria sentido com dezenas de avaliações.
 
 O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma da bobina. **Comece com o volume BAIXO.**
 

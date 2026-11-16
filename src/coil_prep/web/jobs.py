@@ -25,6 +25,7 @@ class Job:
     result: Result | None = None
     source: str = ""  # link ou nome do arquivo, para o histórico de avaliações
     rated: bool = False
+    last_edit: str = ""  # hash das notas já registradas como edição no feedback
     created: float = field(default_factory=lambda: __import__("time").time())
 
     def to_dict(self) -> dict:

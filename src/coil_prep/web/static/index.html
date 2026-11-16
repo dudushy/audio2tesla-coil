@@ -280,8 +280,9 @@ async function sendFeedback(rating, tag) {
     body: JSON.stringify({ rating, tag }),
   });
   if (res.ok) {
+    const info = await res.json();
     $("rate").classList.add("hidden");
-    $("rate-msg").textContent = "Avaliação salva. Obrigado! Ela ajuda a sugerir o melhor som nas próximas.";
+    $("rate-msg").textContent = "Avaliação salva. Obrigado! Ela ajuda a sugerir o melhor som nas próximas." + (info.edit_recorded ? " Suas edições também foram registradas como comparação." : "");
     loadState();
   } else {
     const body = await res.json().catch(() => ({}));
