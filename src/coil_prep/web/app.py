@@ -15,11 +15,11 @@ from pydantic import BaseModel
 
 from .. import feedback
 from .. import notes as notes_mod
-from ..calibrate import DEFAULT_FREQS, square_tones
+from ..calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from ..fetch import is_url
 from ..ffmpeg import wav_to_mp3
-from ..midi import MIDI_EXTS, RATE
-from ..pipeline import STEM_CHOICES, apply_edit
+from ..midi import MIDI_EXTS, RATE, render
+from ..pipeline import PEAK_DB, STEM_CHOICES, apply_edit
 from ..profile import Profile, load_profile, save_profile
 from .jobs import JobManager
 
@@ -124,8 +124,20 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(404, "job não encontrado")
         return job.to_dict()
 
+    def render_speed(job, wav: Path, speed: float) -> Path:
+        """Re-renderiza as notas atuais com os tempos esticados (mantém o tom; sem time-stretch)."""
+        out = wav.with_name(f"{wav.stem}.x{speed:g}.wav")
+        r = job.result
+        with edit_lock:
+            current = notes_mod.load(r.notes_file)["current"]
+            segs = [(n.start / speed, n.end / speed, (n.pitch,)) for n in current]
+            write_mono_wav(out, render(segs, r.min_hz, r.max_hz, PEAK_DB), RATE)
+        return out
+
     @app.get("/api/jobs/{job_id}/audio/{which}")
-    def job_audio(job_id: str, which: str, download: bool = False, format: str = "wav"):
+    def job_audio(
+        job_id: str, which: str, download: bool = False, format: str = "wav", speed: float = 1.0
+    ):
         job = jobs.get(job_id)
         if job is None or job.result is None:
             raise HTTPException(404, "áudio indisponível")
@@ -145,6 +157,10 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             return FileResponse(
                 mp3, media_type="audio/mpeg", filename=mp3.name if download else None
             )
+        if which == "result" and speed != 1.0:
+            if not 0.5 <= speed <= 2.0:
+                raise HTTPException(422, "speed deve estar entre 0.5 e 2")
+            path = render_speed(job, path, speed)
         if download and which == "result":
             record_edit(job)
         return FileResponse(path, filename=path.name if download else None)

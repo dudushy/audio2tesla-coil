@@ -80,6 +80,11 @@
   <section id="result" class="card hidden">
     <label>Resultado (onda quadrada)</label>
     <audio id="audio-result" controls preload="none"></audio>
+    <label for="speed">Velocidade (mantém o tom; vale também para o download do WAV)</label>
+    <select id="speed">
+      <option value="0.5">0,5x</option><option value="0.75">0,75x</option>
+      <option value="1" selected>1x</option><option value="1.25">1,25x</option><option value="1.5">1,5x</option>
+    </select>
     <div id="box-original">
       <label>Original</label>
       <audio id="audio-original" controls preload="none"></audio>
@@ -178,7 +183,7 @@ async function loadNotes() {
   if (!roll) {
     roll = new PianoRoll($("roll"), {
       onChange: () => { $("ed-apply").disabled = !roll.dirty; $("ed-msg").textContent = roll.dirty ? "Alterações ainda não aplicadas ao áudio." : ""; },
-      onSeek: (t) => { $("audio-result").currentTime = t; roll.setPlayhead(t); },
+      onSeek: (t) => { $("audio-result").currentTime = t / speed; roll.setPlayhead(t); },
       onPreview: previewTone,
     });
   }
@@ -193,7 +198,7 @@ async function putNotes(notes) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) { $("ed-msg").textContent = typeof body.detail === "string" ? body.detail : "Não consegui aplicar as edições."; return false; }
   roll.setData({ notes: body.notes, generated: body.generated, minPitch: body.min_pitch, maxPitch: body.max_pitch });
-  const a = $("audio-result"); a.src = `/api/jobs/${currentJob}/audio/result?v=${Date.now()}`;
+  setResultSrc();
   $("summary").textContent = `${body.notes.length} trechos | faixa ${body.min_hz}–${body.max_hz} Hz | pico ${body.peak_db} dBFS`;
   $("ed-apply").disabled = true; $("ed-msg").textContent = "Áudio atualizado.";
   return true;
@@ -209,13 +214,25 @@ $("ed-redo").onclick = () => roll && roll.redo();
 $("ed-del").onclick = () => roll && roll.deleteSelected();
 $("ed-zin").onclick = () => roll && roll.zoom(1.3);
 $("ed-zout").onclick = () => roll && roll.zoom(1 / 1.3);
-$("audio-result").addEventListener("loadedmetadata", (e) => roll && roll.setAudioDuration(e.target.duration));
-$("audio-result").addEventListener("timeupdate", (e) => roll && roll.setPlayhead(e.target.currentTime));
+$("audio-result").addEventListener("loadedmetadata", (e) => roll && roll.setAudioDuration(e.target.duration * speed));
+$("audio-result").addEventListener("timeupdate", (e) => roll && roll.setPlayhead(e.target.currentTime * speed));
 $("audio-result").addEventListener("play", function tick() {
   const a = $("audio-result");
-  if (roll) roll.setPlayhead(a.currentTime);
+  if (roll) roll.setPlayhead(a.currentTime * speed);
   if (!a.paused && !a.ended) requestAnimationFrame(tick);
 });
+
+let speed = 1;  // 1 = original; outro valor re-renderiza as notas mais lentas/rápidas (mesmo tom)
+function setResultSrc() {
+  const q = speed === 1 ? "" : `&speed=${speed}`;
+  $("audio-result").src = `/api/jobs/${currentJob}/audio/result?v=${Date.now()}${q}`;
+  setDownloadLink();
+}
+function setDownloadLink() {
+  const q = speed === 1 ? "" : `&speed=${speed}`;
+  $("download").href = `/api/jobs/${currentJob}/audio/result?download=true${q}`;
+}
+$("speed").onchange = (e) => { speed = parseFloat(e.target.value); setResultSrc(); };
 
 function showResult(job) {
   currentJob = job.id;
@@ -226,15 +243,17 @@ function showResult(job) {
   const r = job.result, base = `/api/jobs/${job.id}/audio/`;
   $("status").classList.add("hidden");
   $("result").classList.remove("hidden");
-  $("audio-result").src = base + "result";
+  speed = 1; $("speed").value = "1"; setResultSrc();
   $("box-original").classList.toggle("hidden", !r.has_original);
   if (r.has_original) $("audio-original").src = base + "original";
-  $("download").href = base + "result?download=true";
+  setDownloadLink();
   $("download").setAttribute("download", r.filename);
   $("download-mp3").href = base + "result?format=mp3&download=true";
-  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS`;
+  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}`;
   const w = [];
   if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
+  if (r.range_warning) w.push(`${Math.round(r.out_of_range * 100)}% do tempo ficou fora da faixa mesmo após transpor; essas notas foram dobradas de oitava e podem soar com saltos.`);
+  if (r.fast_warning) w.push(`Notas curtas (mediana ${r.median_note_ms} ms): a bobina pode não formar o arco; tente velocidade 0,75x ou 0,5x.`);
   if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
   $("warnings").textContent = w.join(" ");
 }

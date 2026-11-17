@@ -10,7 +10,7 @@ A bobina toca **uma nota por vez** como onda quadrada, de baixa fidelidade. Por 
 
 ```
 link ou arquivo → (Demucs: isola um stem) → notas (Basic Pitch ou .mid) → 1 voz por instante
-→ oitava pelo contorno dentro da faixa da bobina → onda quadrada (pico -8 dBFS) → WAV
+→ transposição da música inteira para caber na faixa (prefere só oitavas) → oitava pelo contorno dentro da faixa da bobina → onda quadrada (pico -8 dBFS) → WAV
 ```
 
 **Limitações:** não é hi-fi; em mixagem cheia a transcrição erra e a nota mais aguda nem sempre é a melodia (o app avisa quando mais de 30% do tempo tem notas sobrepostas). Um `.mid` de melodia costuma dar o melhor resultado.

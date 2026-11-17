@@ -278,3 +278,15 @@ def test_rating_after_edit_records_edit_then_rating_and_state_counts_only_rating
     assert r.json()["edit_recorded"] is True
     assert [e["kind"] for e in read_feedback(tmp_path)] == ["edit", "rating"]
     assert client.get("/api/state").json()["ratings"] == 1  # o evento de edição não conta
+
+
+def test_speed_rerenders_slower_wav_and_rejects_bad_values(client, tmp_path):
+    r = client.post(
+        "/api/jobs", data={"stem": "mix"}, files={"file": ("a.mid", midi_bytes(tmp_path))}
+    )
+    job = wait_done(client, r.json()["id"])
+    assert "shift" in job["result"] and "fast_warning" in job["result"]
+    normal = client.get(f"/api/jobs/{job['id']}/audio/result").content
+    slow = client.get(f"/api/jobs/{job['id']}/audio/result?speed=0.5")
+    assert slow.status_code == 200 and len(slow.content) > len(normal) * 1.8
+    assert client.get(f"/api/jobs/{job['id']}/audio/result?speed=5").status_code == 422
