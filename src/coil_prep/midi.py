@@ -169,6 +169,42 @@ def merge_same_pitch(segments: list[tuple], merge_gap: float) -> list[tuple]:
     return out
 
 
+def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: int = 24) -> int:
+    """Semitons (inteiro) para transpor a música INTEIRA e caber o máximo de tempo na faixa.
+
+    Melhor que dobrar nota a nota: mantém o contorno da melodia (só muda a tonalidade).
+    Prefere deslocar só por oitavas (preserva a tonalidade); semitons só se couber >5% mais tempo.
+    Desempate: menor |deslocamento| (0 se a música já cabe).
+    """
+
+    def in_range(shift: int) -> float:
+        return sum(b - a for a, b, (p,) in segments if min_hz <= midi_to_hz(p + shift) <= max_hz)
+
+    def best(shifts):
+        return max(shifts, key=lambda s: (round(in_range(s), 3), -abs(s)))
+
+    anywhere = best(range(-max_shift, max_shift + 1))
+    octave = best(range(-max_shift // 12 * 12, max_shift // 12 * 12 + 1, 12))
+    # prefere só mudar de oitava (mantém a tonalidade) se perder menos de 5% do tempo
+    return octave if in_range(octave) >= in_range(anywhere) * 0.95 else anywhere
+
+
+def transpose(segments: list[tuple], shift: int) -> list[tuple]:
+    return [(a, b, tuple(p + shift for p in ps)) for a, b, ps in segments]
+
+
+def out_of_range_fraction(segments: list[tuple], min_hz: float, max_hz: float) -> float:
+    """Fração do tempo de som em notas fora de [min_hz, max_hz] (antes de dobrar oitavas)."""
+    total = sum(b - a for a, b, _ in segments)
+    bad = sum(b - a for a, b, (p, *_) in segments if not min_hz <= midi_to_hz(p) <= max_hz)
+    return bad / total if total else 0.0
+
+
+def median_note_ms(segments: list[tuple]) -> float:
+    durs = sorted(b - a for a, b, _ in segments)
+    return 1000 * durs[len(durs) // 2] if durs else 0.0
+
+
 def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tuple]:
     """Escolhe a oitava de cada nota (1 voz) pelo contorno: a mais próxima da nota anterior.
 

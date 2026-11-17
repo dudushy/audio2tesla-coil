@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..fetch import FetchError, is_url
 from ..ffmpeg import FfmpegError
-from ..pipeline import OVERLAP_WARN, Result, process
+from ..pipeline import FAST_NOTE_MS, OUT_OF_RANGE_WARN, OVERLAP_WARN, Result, process
 from ..profile import load_profile
 
 MAX_JOBS = 50  # histórico em memória; os arquivos ficam no volume
@@ -40,6 +40,11 @@ class Job:
                 "segments": r.segments,
                 "overlap": round(r.overlap, 3),
                 "overlap_warning": r.overlap > OVERLAP_WARN,
+                "shift": r.shift,
+                "out_of_range": round(r.out_of_range, 3),
+                "median_note_ms": round(r.median_note_ms),
+                "range_warning": r.out_of_range > OUT_OF_RANGE_WARN,
+                "fast_warning": r.median_note_ms < FAST_NOTE_MS,
                 "peak_db": round(r.peak_db, 1),
                 "ok": r.ok,
                 "has_original": r.original is not None,

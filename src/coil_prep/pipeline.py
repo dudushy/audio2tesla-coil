@@ -12,11 +12,15 @@ from .ffmpeg import decode_mono
 from .midi import (
     MIDI_EXTS,
     RATE,
+    best_shift,
     contour_fold,
+    median_note_ms,
     melody_line,
     notes_from,
+    out_of_range_fraction,
     overlap_fraction,
     render,
+    transpose,
 )
 from .profile import Profile
 from .separate import separate
@@ -26,6 +30,8 @@ PEAK_DB = -8.0  # nível que a bobina tocou bem (referência Mario)
 FALLBACK_RANGE = (100.0, 800.0)
 OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
 MAX_PEAK = -3.0
+OUT_OF_RANGE_WARN = 0.2  # mesmo após transpor, muita nota fora da faixa vira salto de oitava
+FAST_NOTE_MS = 100  # mediana abaixo disso: o arco não tem tempo de formar (Mario ~140 ms)
 
 Progress = Callable[[str], None]
 
@@ -41,6 +47,9 @@ class Result:
     notes: int
     segments: int
     overlap: float
+    shift: int  # semitons aplicados à música inteira para caber na faixa
+    out_of_range: float  # fração do tempo fora da faixa depois do shift (antes de dobrar)
+    median_note_ms: float
     peak_db: float
     clipped: bool
 
@@ -78,10 +87,12 @@ def process(
     progress("Extraindo a melodia...")
     notes = notes_from(origin)
     segments = melody_line(notes, 0.06, 0.02, 0.02)
-    if segments:
-        segments = contour_fold(segments, min_hz, max_hz)
     if not segments:
         raise ValueError("nenhuma nota detectada; tente outro som (stem) ou outro arquivo")
+    shift = best_shift(segments, min_hz, max_hz)
+    segments = transpose(segments, shift)
+    out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
+    segments = contour_fold(segments, min_hz, max_hz)
 
     progress("Gerando a onda quadrada...")
     out = workdir / "output" / f"{original.stem}.{stem}.wav"  # um arquivo por stem
@@ -101,6 +112,9 @@ def process(
         notes=len(notes),
         segments=len(segments),
         overlap=0.0 if is_midi else overlap_fraction(notes),
+        shift=shift,
+        out_of_range=out_of_range,
+        median_note_ms=median_note_ms(segments),
         peak_db=report.peak_db,
         clipped=report.clipped,
     )

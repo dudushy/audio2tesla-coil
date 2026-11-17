@@ -11,14 +11,18 @@ from coil_prep.ffmpeg import decode_mono
 from coil_prep.midi import (
     RATE,
     Note,
+    best_shift,
     contour_fold,
     fold_to_range,
+    median_note_ms,
     melody_line,
     merge_same_pitch,
     midi_to_hz,
+    out_of_range_fraction,
     read_midi,
     render,
     skyline,
+    transpose,
 )
 from coil_prep.pipeline import process
 from coil_prep.profile import Profile
@@ -269,3 +273,23 @@ def test_melody_line_sustained_bass_does_not_capture_the_melody():
     lead = [Note(0.2 * i, 0.2 * i + 0.15, p, 0.6) for i, p in enumerate([72, 76, 79, 76, 72])]
     got = melody_line([bass, *lead], gap=0)
     assert [s[2][0] for s in got][:5] == [72, 76, 79, 76, 72]  # depois só resta o baixo
+
+
+def test_best_shift_is_zero_when_music_already_fits():
+    segs = [(0, 1, (60,)), (1, 2, (64,))]
+    assert best_shift(segs, 100, 800) == 0
+
+
+def test_best_shift_moves_whole_song_into_range():
+    # E5..B5 passam de 800 Hz (E5=659 ok, G5=784 ok, B5=988 fora); com -12 tudo cabe
+    segs = [(0, 1, (88,)), (1, 2, (91,)), (2, 3, (95,))]  # E6, G6, B6: tudo acima de 1 kHz
+    shift = best_shift(segs, 100, 800)
+    moved = transpose(segs, shift)
+    assert out_of_range_fraction(moved, 100, 800) == 0
+    assert [b[2][0] - a[2][0] for a, b in zip(segs, moved)] == [shift] * 3  # contorno preservado
+
+
+def test_out_of_range_fraction_and_median_note():
+    segs = [(0, 1, (60,)), (1, 4, (100,))]  # 1 s dentro, 3 s fora
+    assert out_of_range_fraction(segs, 100, 800) == 0.75
+    assert median_note_ms([(0, 0.1, (60,)), (1, 1.3, (60,)), (2, 2.2, (60,))]) == pytest.approx(200)
