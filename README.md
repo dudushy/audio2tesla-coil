@@ -26,7 +26,7 @@ docker compose up --build
 
 Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 
-1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB).
+1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB). Na aba Arquivo, "Buscar MIDI no BitMidi" lista resultados do bitmidi.com: abra a página, baixe o `.mid` e envie-o. O BitMidi não tem API e o robots.txt dele proíbe `/uploads/`, então o app só lê as páginas de busca (cache de 10 min, 1 req/s) e não baixa os arquivos por você.
 2. Escolha o **som a usar**: `other` (padrão: sintes e instrumentos, onde costuma estar a melodia em música eletrônica), `vocals` (música cantada) ou `mix` (sem separar).
 3. Clique em **Gerar**, ouça o resultado e o original ali mesmo e, se quiser, baixe o **WAV** (recomendado) ou o **MP3** (o codec com perdas pode arredondar um pouco as quinas da onda quadrada).
 4. **Edite as notas** (opcional) no piano roll: arraste para mover no tempo e no tom, arraste as bordas para mudar a duração, arraste no vazio para selecionar várias (retângulo), duplo clique ou a ferramenta Desenhar criam notas, Ctrl+C/V/D copiam e duplicam, Delete exclui, Ctrl+Z desfaz, Espaço toca/pausa; há grade ajustável e, no celular, pinça para zoom e segurar+arrastar para selecionar (o botão "Como editar" lista todos os atalhos). As notas tracejadas mostram o que o app gerou e você mudou. O tom fica sempre dentro da faixa calibrada e a bobina toca uma nota por vez (sobreposição é cortada). Clique em **Aplicar e ouvir** para re-renderizar o áudio e exporte o WAV/MP3.

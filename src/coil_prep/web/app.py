@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import feedback
+from .. import bitmidi, feedback
 from .. import notes as notes_mod
 from ..calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from ..fetch import is_url
@@ -87,6 +87,15 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():
         return FileResponse(STATIC / "favicon.svg", media_type="image/svg+xml")
+
+    @app.get("/api/bitmidi/search")
+    def bitmidi_search(q: str, page: int = 0):
+        try:
+            return bitmidi.search(q, page)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui consultar o BitMidi agora") from None
 
     @app.post("/api/jobs")
     async def create_job(
