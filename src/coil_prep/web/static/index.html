@@ -65,6 +65,16 @@
     <div id="box-file" class="hidden">
       <label for="file">Arquivo de áudio ou .mid (até 100 MB)</label>
       <input id="file" type="file" accept="audio/*,.mid,.midi,.opus,.webm">
+      <details id="bm" style="margin-top:8px">
+        <summary>Buscar MIDI no BitMidi</summary>
+        <div class="row">
+          <input id="bm-q" type="search" placeholder="ex.: mario" autocomplete="off" style="flex:3;min-height:44px;padding:8px 10px;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px">
+          <button type="button" id="bm-go">Buscar</button>
+        </div>
+        <ul id="bm-list" style="padding-left:20px"></ul>
+        <div class="row"><button type="button" id="bm-prev" class="hidden">‹ Anterior</button><button type="button" id="bm-next" class="hidden">Próxima ›</button></div>
+        <p id="bm-msg" class="muted" style="margin:6px 0 0">Abra a página, baixe o .mid e selecione-o no campo acima (ou arraste-o para ele). O app não baixa os arquivos por você.</p>
+      </details>
     </div>
     <label for="stem">Som a usar</label>
     <select id="stem">
@@ -175,6 +185,35 @@ function setMode(m) {
 }
 $("tab-url").onclick = () => setMode("url");
 $("tab-file").onclick = () => setMode("file");
+
+let bmPage = 0;
+async function bmSearch(page) {
+  const q = $("bm-q").value.trim();
+  if (!q) { $("bm-msg").textContent = "Digite o que buscar."; return; }
+  $("bm-msg").textContent = "Buscando...";
+  try {
+    const res = await fetch(`/api/bitmidi/search?q=${encodeURIComponent(q)}&page=${page}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "erro na busca");
+    bmPage = page;
+    const ul = $("bm-list");
+    ul.textContent = "";
+    for (const r of data.results) {
+      const li = document.createElement("li"), a = document.createElement("a");
+      a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = r.name;
+      li.appendChild(a); ul.appendChild(li);
+    }
+    $("bm-prev").classList.toggle("hidden", page === 0);
+    $("bm-next").classList.toggle("hidden", !data.has_next);
+    $("bm-msg").textContent = data.results.length
+      ? "Abra a página, baixe o .mid e selecione-o no campo acima (ou arraste-o para ele)."
+      : "Nenhum resultado.";
+  } catch (e) { $("bm-msg").textContent = String(e.message || e); }
+}
+$("bm-go").onclick = () => bmSearch(0);
+$("bm-q").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); bmSearch(0); } };
+$("bm-prev").onclick = () => bmSearch(bmPage - 1);
+$("bm-next").onclick = () => bmSearch(bmPage + 1);
 
 function showStatus(html, isError) {
   const s = $("status");
