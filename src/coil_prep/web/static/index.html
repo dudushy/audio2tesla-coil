@@ -364,6 +364,7 @@ function showResult(job) {
   const w = [];
   if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
   if (r.range_warning) w.push(`${Math.round(r.out_of_range * 100)}% do tempo ficou fora da faixa mesmo após transpor; essas notas foram dobradas de oitava e podem soar com saltos.`);
+  if (r.moved_warning) w.push(`${Math.round(r.moved * 100)}% do tempo teve notas movidas de oitava para caber em ${r.min_hz}–${r.max_hz} Hz (a nota é a mesma, só a oitava muda; o desenho da melodia é mantido). Se a bobina aguentar, aumente o "Maior Hz" na calibragem.`);
   if (r.fast_warning) w.push(`Notas curtas (mediana ${r.median_note_ms} ms): a bobina pode não formar o arco; tente velocidade 0,75x ou 0,5x.`);
   if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
   $("warnings").textContent = w.join(" ");

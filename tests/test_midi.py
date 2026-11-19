@@ -204,7 +204,9 @@ def test_contour_fold_avoids_false_octave_jumps_at_range_edge():
     # melodia cruzando 800 Hz (G5=784, A5=880): nota a nota, A5 viraria A4 (salto de 10 semitons)
     segs = [(0, 1, (79,)), (1, 2, (81,)), (2, 3, (83,))]
     got = [s[2][0] for s in contour_fold(segs, 100, 800)]
-    assert got == [79, 69, 71]  # A5/B5 não cabem; ficam em A4/B4, mas sem saltar além do necessário
+    # A5/B5 não cabem: a frase inteira desce junto (contorno 79,81,83 -> 67,69,71) em vez de
+    # virar [79, 69, 71], com um salto falso de 10 semitons para baixo
+    assert got == [67, 69, 71]
     assert all(100 <= midi_to_hz(p) <= 800 for p in got)
     # a diferença de classe de altura é preservada
     assert [(p - q) % 12 for p, q in zip(got, [79, 81, 83])] == [0, 0, 0]
