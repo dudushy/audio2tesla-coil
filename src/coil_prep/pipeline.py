@@ -19,7 +19,9 @@ from .midi import (
     notes_from,
     out_of_range_fraction,
     overlap_fraction,
+    read_midi_parts,
     render,
+    select_part,
     transpose,
 )
 from .profile import Profile
@@ -52,6 +54,8 @@ class Result:
     median_note_ms: float
     peak_db: float
     clipped: bool
+    parts: tuple = ()  # .mid: trilhas disponíveis (dicts id/name/notes/lo/hi/chosen) para o usuário trocar
+    part: int | None = None  # .mid: id da trilha usada
 
     @property
     def ok(self) -> bool:
@@ -64,8 +68,12 @@ def process(
     profile: Profile | None,
     stem: str = "other",
     progress: Progress = lambda _msg: None,
+    part: int | None = None,
 ) -> Result:
-    """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav."""
+    """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
+
+    `part` (só .mid): id da trilha (trilha*16+canal); None = escolhe a mais provável de ser a melodia.
+    """
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
     min_hz, max_hz = (profile.min_hz, profile.max_hz) if profile else FALLBACK_RANGE
@@ -85,7 +93,23 @@ def process(
         origin = separate(original, stem, workdir / "separated")
 
     progress("Extraindo a melodia...")
-    notes = notes_from(origin)
+    parts_info, chosen_part = (), None
+    if is_midi:
+        parts = read_midi_parts(origin)
+        chosen = select_part(parts, part)
+        chosen_part, notes = chosen.id, chosen.notes
+        parts_info = tuple(
+            {
+                "id": p.id,
+                "name": p.name,
+                "notes": len(p.notes),
+                "lo": min((n.pitch for n in p.notes), default=0),
+                "hi": max((n.pitch for n in p.notes), default=0),
+            }
+            for p in parts
+        )
+    else:
+        notes = notes_from(origin)
     segments = melody_line(notes, 0.06, 0.02, 0.02)
     if not segments:
         raise ValueError("nenhuma nota detectada; tente outro som (stem) ou outro arquivo")
@@ -95,7 +119,8 @@ def process(
     segments = contour_fold(segments, min_hz, max_hz)
 
     progress("Gerando a onda quadrada...")
-    out = workdir / "output" / f"{original.stem}.{stem}.wav"  # um arquivo por stem
+    suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
+    out = workdir / "output" / f"{original.stem}.{stem}{suffix}.wav"  # um arquivo por stem/trilha
     out.parent.mkdir(parents=True, exist_ok=True)
     write_mono_wav(out, render(segments, min_hz, max_hz, PEAK_DB), RATE)
     editable = notes_mod.from_segments(segments)
@@ -117,6 +142,8 @@ def process(
         median_note_ms=median_note_ms(segments),
         peak_db=report.peak_db,
         clipped=report.clipped,
+        parts=parts_info,
+        part=chosen_part,
     )
 
 

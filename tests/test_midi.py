@@ -293,3 +293,114 @@ def test_out_of_range_fraction_and_median_note():
     segs = [(0, 1, (60,)), (1, 4, (100,))]  # 1 s dentro, 3 s fora
     assert out_of_range_fraction(segs, 100, 800) == 0.75
     assert median_note_ms([(0, 0.1, (60,)), (1, 1.3, (60,)), (2, 2.2, (60,))]) == pytest.approx(200)
+
+
+# --- notas que sumiam: escolha da trilha, tempo, oitava x semitom, de-para com o teclado do site ---
+
+MELODY = [60, 62, 64, 60, 64, 67, 65, 64, 62, 60, 62, 64, 60, 67, 64, 62]
+
+
+def song_mid(tmp_path, with_backing=True):
+    """Melodia no canal 0 + (opcional) arpejo agudo, baixo e acorde sustentado. Sem copyright."""
+    ev = [(0, n, i * 0.5, 0.5) for i, n in enumerate(MELODY)]
+    if with_backing:
+        ev += [(1, 72 + (i % 3) * 4, i * 0.5 + 0.25, 0.5) for i in range(16)]  # arpejo acima
+        ev += [(2, 36 + (i % 4) * 2, i * 0.5, 0.5) for i in range(16)]  # baixo
+        ev += [(3, p, 0, 8) for p in (55, 59, 62)]  # acorde longo
+    path = tmp_path / "song.mid"
+    make_mid(path, ev)
+    return path
+
+
+def pitch_classes(wav_segments):
+    return [p % 12 for _, _, (p,) in wav_segments]
+
+
+def test_auto_part_picks_melody_not_backing(tmp_path):
+    from coil_prep.midi import read_midi_parts, select_part
+
+    parts = read_midi_parts(song_mid(tmp_path))
+    assert len(parts) == 4
+    assert select_part(parts, None).id == 0  # a melodia, não o arpejo agudo nem o acorde
+
+
+def test_process_keeps_every_melody_note_with_backing(tmp_path):
+    """Regressão: antes, baixo/arpejo/acorde 'ganhavam' da melodia e só 4-6 de 16 notas sobravam."""
+    res = process(str(song_mid(tmp_path)), tmp_path / "w", Profile(100, 1000), "mix")
+    from coil_prep import notes as notes_mod
+
+    got = notes_mod.load(res.notes_file)["current"]
+    assert [n.pitch % 12 for n in got] == [p % 12 for p in MELODY]
+    assert res.part == 0 and len(res.parts) == 4
+
+
+def test_process_part_override_and_all(tmp_path):
+    path = song_mid(tmp_path)
+    bass = process(str(path), tmp_path / "w", Profile(100, 1000), "mix", part=2)
+    assert bass.part == 2 and bass.segments == 16
+    every = process(str(path), tmp_path / "w2", Profile(100, 1000), "mix", part=-1)
+    assert every.part == -1
+    with pytest.raises(ValueError, match="não existe"):
+        process(str(path), tmp_path / "w3", Profile(100, 1000), "mix", part=999)
+
+
+def test_read_midi_parts_follows_tempo_changes(tmp_path):
+    tpb = 480
+    t0, t1 = mido.MidiTrack(), mido.MidiTrack()
+    t0.append(mido.MetaMessage("set_tempo", tempo=500000, time=0))  # 120 bpm: 1 beat = 0,5 s
+    t0.append(mido.MetaMessage("set_tempo", tempo=1000000, time=tpb))  # 60 bpm a partir do beat 1
+    t1 += [
+        mido.Message("note_on", note=60, velocity=80, time=0),
+        mido.Message("note_off", note=60, time=tpb * 2),  # 1 beat a 120 + 1 beat a 60 = 1,5 s
+    ]
+    mid = mido.MidiFile(ticks_per_beat=tpb)
+    mid.tracks += [t0, t1]
+    path = tmp_path / "tempo.mid"
+    mid.save(str(path))
+    from coil_prep.midi import read_midi_parts
+
+    (part,) = read_midi_parts(path)
+    assert part.id == 16 and round(part.notes[0].end, 3) == 1.5
+
+
+def test_read_midi_retrigger_and_unterminated_note(tmp_path):
+    track = mido.MidiTrack(
+        [
+            mido.Message("note_on", note=60, velocity=80, time=0),
+            mido.Message("note_on", note=60, velocity=80, time=480),  # sem note_off: religa
+            mido.Message("note_on", note=64, velocity=80, time=480),  # nunca fecha
+            mido.Message("note_off", note=60, time=480),
+        ]
+    )
+    mid = mido.MidiFile(ticks_per_beat=480)
+    mid.tracks.append(track)
+    path = tmp_path / "r.mid"
+    mid.save(str(path))
+    notes = read_midi(path)
+    assert [(n.pitch, round(n.start, 2), round(n.end, 2)) for n in notes] == [
+        (60, 0.0, 0.5),
+        (60, 0.5, 1.5),
+        (64, 1.0, 1.5),  # fechada no fim do arquivo (antes sumia)
+    ]
+
+
+def test_best_shift_only_moves_by_octaves():
+    # melodia que "cabe mais" 3 semitons acima: a versão antiga mudava o tom; agora só oitavas
+    segs = [(i * 0.5, i * 0.5 + 0.4, (p,)) for i, p in enumerate([83, 84, 85, 86, 87, 88])]
+    assert best_shift(segs, 100, 1000) % 12 == 0
+
+
+def test_every_teslacoil_keyboard_note_is_reachable_with_its_pitch_class():
+    """De-para com o teclado de teslacoil.app (C2-B6, 60 notas, A4=440): nada é descartado.
+
+    Notas fora da faixa calibrada são dobradas para outra oitava, mas mantêm a classe de altura.
+    """
+    from coil_prep.notes import pitch_range
+
+    assert (round(midi_to_hz(36)), round(midi_to_hz(69)), round(midi_to_hz(95))) == (65, 440, 1976)
+    lo, hi = pitch_range(100, 1000)
+    assert (lo, hi) == (44, 83)  # G#2..B5: só C2-G2 e C6-B6 do site ficam fora de 100-1000 Hz
+    for pitch in range(36, 96):
+        seg = contour_fold([(0, 1, (pitch,))], 100, 1000)
+        folded = seg[0][2][0]
+        assert lo <= folded <= hi and (folded - pitch) % 12 == 0

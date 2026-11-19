@@ -45,6 +45,14 @@
   .toolbar select { width:auto; min-height:40px; }
   .toolbar label { margin:0; font-weight:400; display:inline-flex; align-items:center; gap:6px; }
   details.help { margin:8px 0; }
+  .kb { position:relative; height:150px; user-select:none; touch-action:none; outline-offset:2px; border-radius:8px; }
+  .kb .key { position:absolute; top:0; margin:0; padding:0; min-height:0; border-radius:0 0 6px 6px; touch-action:none; }
+  .kb .white { height:100%; background:#fff; color:#333; border:1px solid #9a9ea8; display:flex; align-items:flex-end; justify-content:center; padding-bottom:4px; }
+  .kb .white span { font-size:.7rem; pointer-events:none; }
+  .kb .black { height:60%; background:#222; border:1px solid #000; z-index:2; }
+  .kb .out { opacity:.45; }
+  .kb .white.on { background:var(--accent); color:var(--accent-fg); }
+  .kb .black.on { background:var(--accent); }
   a.dl { display:inline-block; margin-top:4px; color:var(--accent); }
 </style>
 </head>
@@ -86,6 +94,20 @@
     <button class="primary" id="go" type="submit">Gerar</button>
     <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos.</p>
   </form>
+
+  <section class="card" id="kb-box">
+    <details open>
+      <summary>Tocar ao vivo (teclado)</summary>
+      <p class="muted" style="margin-top:0">Onda quadrada direto no navegador, sem gerar arquivo. Volume baixo primeiro. 1 nota por vez; arraste o dedo/mouse para deslizar entre as teclas. Teclado do computador: clique no piano e use A W S E D F T G Y H U J K O L (Z/X trocam a oitava). Teclas esmaecidas ficam fora da faixa calibrada.</p>
+      <div class="toolbar">
+        <button type="button" id="kb-down" aria-label="Oitava abaixo">◀ Oitava</button>
+        <strong id="kb-oct" aria-live="polite"></strong>
+        <button type="button" id="kb-up" aria-label="Oitava acima">Oitava ▶</button>
+      </div>
+      <div class="kb" tabindex="0" role="group" aria-label="Teclado de piano (C2 a B6)"></div>
+      <p id="kb-info" class="muted" style="margin:6px 0 0" aria-live="polite"></p>
+    </details>
+  </section>
 
   <section id="status" class="card hidden" aria-live="polite"></section>
 
@@ -139,6 +161,11 @@
         Notas tracejadas mostram o que o app gerou e você mudou ou apagou; notas vermelhas se sobrepõem (a bobina toca uma por vez, então a anterior será cortada). O tom fica sempre dentro da faixa calibrada. Depois de editar, clique em "Aplicar e ouvir".</p>
       </details>
     </div>
+    <div id="box-part" class="hidden">
+      <label for="part">Trilha do MIDI (a melodia)</label>
+      <select id="part"></select>
+      <p class="muted" style="margin:4px 0 0">O app escolhe a trilha que parece a melodia; se saiu errada (baixo, acompanhamento), troque aqui.</p>
+    </div>
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
     <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a>
@@ -172,6 +199,7 @@
   </section>
 </main>
 <script src="/static/editor.js"></script>
+<script src="/static/piano.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let mode = "url", timer = null, currentJob = null;
@@ -326,6 +354,7 @@ function showResult(job) {
   $("status").classList.add("hidden");
   $("result").classList.remove("hidden");
   speed = 1; $("speed").value = "1"; setResultSrc();
+  showParts(r);
   $("box-original").classList.toggle("hidden", !r.has_original);
   if (r.has_original) $("audio-original").src = base + "original";
   setDownloadLink();
@@ -339,6 +368,21 @@ function showResult(job) {
   if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
   $("warnings").textContent = w.join(" ");
 }
+
+const noteName = (p) => ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][p % 12] + (Math.floor(p / 12) - 1);
+function showParts(r) {
+  const sel = $("part"), parts = r.parts || [];
+  $("box-part").classList.toggle("hidden", parts.length < 2);
+  sel.textContent = "";
+  for (const p of parts) {
+    const o = new Option(`${p.name} · ${p.notes} notas · ${noteName(p.lo)}–${noteName(p.hi)}`, p.id);
+    o.selected = p.chosen;
+    sel.add(o);
+  }
+  sel.add(new Option("Todas as trilhas misturadas", -1));
+  if (r.part === -1) sel.value = "-1";
+}
+$("part").onchange = (e) => submitJob(parseInt(e.target.value, 10));
 
 async function poll(id) {
   try {
@@ -355,12 +399,14 @@ async function poll(id) {
 
 function finish() { clearTimeout(timer); $("go").disabled = false; }
 
-$("form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
+let lastSource = null;  // {url} ou {file}: reenviado ao trocar a trilha do MIDI
+
+async function submitJob(part) {
   const fd = new FormData();
   fd.append("stem", $("stem").value);
-  if (mode === "url") fd.append("url", $("url").value);
-  else if ($("file").files[0]) fd.append("file", $("file").files[0]);
+  if (part !== undefined) fd.append("part", part);
+  if (lastSource.url !== undefined) fd.append("url", lastSource.url);
+  else if (lastSource.file) fd.append("file", lastSource.file);
   $("go").disabled = true;
   $("result").classList.add("hidden");
   $("audio-result").pause(); $("audio-original").pause();
@@ -373,6 +419,12 @@ $("form").addEventListener("submit", async (ev) => {
   } catch (e) {
     finish(); showStatus("Não consegui falar com o servidor.", true);
   }
+}
+
+$("form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  lastSource = mode === "url" ? { url: $("url").value } : { file: $("file").files[0] };
+  submitJob();
 });
 
 async function sendFeedback(rating, tag) {
@@ -404,6 +456,7 @@ async function loadState() {
       $("hint").textContent = `Sugestão pelo histórico (${st.ratings} avaliação(ões)): ${st.suggestion}.`;
       $("hint").classList.remove("hidden");
     }
+    LiveKeyboard.configure({ peakDb: st.peak_db, minHz: st.profile && st.profile.min_hz, maxHz: st.profile && st.profile.max_hz });
     if (st.profile) {
       $("cal-current").textContent = `${st.profile.min_hz}–${st.profile.max_hz} Hz`;
       $("min-hz").value = st.profile.min_hz;
