@@ -303,8 +303,8 @@ def test_midi_part_choice_via_api(client, tmp_path):
         ],
     )
     res = first["result"]
-    assert res["part"] == 0 and len(res["parts"]) == 4
-    assert [p["id"] for p in res["parts"] if p["chosen"]] == [0]
+    assert res["part"] is None and len(res["parts"]) == 4
+    assert [p["id"] for p in res["parts"] if p["used"] > 0] == [0]
     second = wait_done(
         client,
         client.post(

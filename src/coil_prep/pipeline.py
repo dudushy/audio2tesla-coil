@@ -10,10 +10,13 @@ from .calibrate import write_mono_wav
 from .fetch import fetch, is_url
 from .ffmpeg import decode_mono
 from .midi import (
+    ALL_PARTS,
     MIDI_EXTS,
     RATE,
     best_shift,
+    combine_parts,
     contour_fold,
+    coverage,
     median_note_ms,
     melody_line,
     notes_from,
@@ -72,7 +75,8 @@ def process(
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
-    `part` (só .mid): id da trilha (trilha*16+canal); None = escolhe a mais provável de ser a melodia.
+    `part` (só .mid): id da trilha (trilha*16+canal); -1 = todas; None = combina automaticamente
+    as trilhas que parecem melodia (a melhor manda, as outras preenchem as pausas dela).
     """
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
@@ -96,8 +100,13 @@ def process(
     parts_info, chosen_part = (), None
     if is_midi:
         parts = read_midi_parts(origin)
-        chosen = select_part(parts, part)
-        chosen_part, notes = chosen.id, chosen.notes
+        if part is None:  # automático: melodia combinada de várias trilhas
+            notes, used = combine_parts(parts)
+        else:
+            chosen = select_part(parts, part)
+            chosen_part, notes = chosen.id, chosen.notes
+            used = {p.id: coverage(p.notes)[0] for p in parts} if part == ALL_PARTS else {}
+            used = used or {chosen.id: coverage(notes)[0]}
         parts_info = tuple(
             {
                 "id": p.id,
@@ -105,6 +114,7 @@ def process(
                 "notes": len(p.notes),
                 "lo": min((n.pitch for n in p.notes), default=0),
                 "hi": max((n.pitch for n in p.notes), default=0),
+                "used": round(used.get(p.id, 0.0), 1),  # segundos desta trilha na melodia final
             }
             for p in parts
         )

@@ -164,7 +164,7 @@
     <div id="box-part" class="hidden">
       <label for="part">Trilha do MIDI (a melodia)</label>
       <select id="part"></select>
-      <p class="muted" style="margin:4px 0 0">O app escolhe a trilha que parece a melodia; se saiu errada (baixo, acompanhamento), troque aqui.</p>
+      <p class="muted" style="margin:4px 0 0">No automático, a trilha que mais parece a melodia manda e outras trilhas só preenchem as pausas dela (a melodia costuma passar de um instrumento para outro). Se saiu errado, escolha uma trilha só.</p>
     </div>
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
@@ -374,15 +374,15 @@ function showParts(r) {
   const sel = $("part"), parts = r.parts || [];
   $("box-part").classList.toggle("hidden", parts.length < 2);
   sel.textContent = "";
+  sel.add(new Option("Automático: combina as trilhas que parecem melodia", "auto"));
   for (const p of parts) {
-    const o = new Option(`${p.name} · ${p.notes} notas · ${noteName(p.lo)}–${noteName(p.hi)}`, p.id);
-    o.selected = p.chosen;
-    sel.add(o);
+    const used = p.used > 0 ? ` · usada ${Math.round(p.used)} s` : "";
+    sel.add(new Option(`${p.name} · ${p.notes} notas · ${noteName(p.lo)}–${noteName(p.hi)}${used}`, p.id));
   }
   sel.add(new Option("Todas as trilhas misturadas", -1));
-  if (r.part === -1) sel.value = "-1";
+  sel.value = r.part === null || r.part === undefined ? "auto" : String(r.part);
 }
-$("part").onchange = (e) => submitJob(parseInt(e.target.value, 10));
+$("part").onchange = (e) => submitJob(e.target.value === "auto" ? undefined : parseInt(e.target.value, 10));
 
 async function poll(id) {
   try {
