@@ -42,6 +42,9 @@ Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 5. Ao exportar (ou avaliar) depois de editar, o app registra a **comparação técnica**: o que ele gerou x o que você deixou (notas apagadas, adicionadas e movidas, com as variações de tom e tempo). Vai para `data/feedback.jsonl` (evento `edit`) e as listas completas para `data/feedback/<job>.json`.
 6. Toque na bobina e **avalie** (👍/👎, com um motivo no 👎). As avaliações ficam em `data/feedback.jsonl` e o app passa a **sugerir o som** (stem) com a melhor média no seu histórico. Isso é só uma média por stem, sem machine learning: um modelo para escolher a nota da melodia só faria sentido com dezenas de avaliações.
 
+7. **Tocar ao vivo:** o cartão "Tocar ao vivo (teclado)" é um piano C2–B6 (a mesma faixa do teclado de teslacoil.app) que toca onda quadrada direto no navegador, no mesmo nível do WAV gerado (-8 dBFS, duty 50%), sem gerar nem enviar arquivo. Uma nota por vez; arraste para deslizar entre teclas; botões ◀ ▶ trocam a oitava; no teclado do computador, clique no piano e use A W S E D F T G Y H U J K O L (Z/X trocam a oitava). Teclas esmaecidas estão fora da faixa calibrada (tocam mesmo assim).
+8. **.mid com várias trilhas:** o app escolhe sozinho a trilha que parece a melodia (a que mais toca, uma nota por vez, em registro médio/agudo e com variedade de notas; baixo, acordes e arpejos perdem) e mostra um seletor "Trilha do MIDI" para trocar, inclusive para "todas misturadas" (o comportamento antigo, que deixava baixo/acompanhamento atropelarem a melodia).
+
 O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma da bobina. **Comece com o volume BAIXO.**
 
 - O 1º uso baixa os pesos do Demucs; a separação roda em **CPU** e leva alguns minutos por música. O resultado fica em cache: testar outro stem do mesmo arquivo é mais rápido.

@@ -290,3 +290,29 @@ def test_speed_rerenders_slower_wav_and_rejects_bad_values(client, tmp_path):
     slow = client.get(f"/api/jobs/{job['id']}/audio/result?speed=0.5")
     assert slow.status_code == 200 and len(slow.content) > len(normal) * 1.8
     assert client.get(f"/api/jobs/{job['id']}/audio/result?speed=5").status_code == 422
+
+
+def test_midi_part_choice_via_api(client, tmp_path):
+    from test_midi import song_mid
+
+    data = song_mid(tmp_path).read_bytes()
+    first = wait_done(
+        client,
+        client.post("/api/jobs", data={"stem": "mix"}, files={"file": ("s.mid", data)}).json()[
+            "id"
+        ],
+    )
+    res = first["result"]
+    assert res["part"] == 0 and len(res["parts"]) == 4
+    assert [p["id"] for p in res["parts"] if p["chosen"]] == [0]
+    second = wait_done(
+        client,
+        client.post(
+            "/api/jobs", data={"stem": "mix", "part": "-1"}, files={"file": ("s.mid", data)}
+        ).json()["id"],
+    )
+    assert second["result"]["part"] == -1
+
+
+def test_state_exposes_live_keyboard_level(client):
+    assert client.get("/api/state").json()["peak_db"] == -8.0

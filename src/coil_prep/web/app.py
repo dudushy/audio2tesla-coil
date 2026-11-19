@@ -101,6 +101,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     async def create_job(
         stem: str = Form("other"),
         url: str = Form(""),
+        part: int | None = Form(None),  # .mid: trilha escolhida (-1 = todas); vazio = automático
         file: UploadFile | None = File(None),  # noqa: B008
     ):
         if stem not in STEM_CHOICES:
@@ -124,7 +125,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
             source = str(dest)
-        return jobs.submit(source, stem).to_dict()
+        return jobs.submit(source, stem, part).to_dict()
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job_id: str):
@@ -295,6 +296,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             "profile": profile,
             "suggestion": feedback.suggest_stem(history),
             "ratings": feedback.count_ratings(history),
+            "peak_db": PEAK_DB,  # nível do teclado ao vivo = o da saída (referência Mario)
             "tags": list(feedback.TAGS),
         }
 

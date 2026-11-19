@@ -49,6 +49,8 @@ class Job:
                 "ok": r.ok,
                 "has_original": r.original is not None,
                 "filename": r.wav.name,
+                "parts": [{**p, "chosen": p["id"] == r.part} for p in r.parts],
+                "part": r.part,
             }
         return data
 
@@ -61,29 +63,36 @@ class JobManager:
         self._jobs: OrderedDict[str, Job] = OrderedDict()
         self._lock = threading.Lock()
 
-    def submit(self, source: str, stem: str) -> Job:
+    def submit(self, source: str, stem: str, part: int | None = None) -> Job:
         label = source if is_url(source) else Path(source).name
         job = Job(id=uuid.uuid4().hex, source=label)
         with self._lock:
             self._jobs[job.id] = job
             while len(self._jobs) > MAX_JOBS:
                 self._jobs.popitem(last=False)
-        self._pool.submit(self._run, job, source, stem)
+        self._pool.submit(self._run, job, source, stem, part)
         return job
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def _run(self, job: Job, source: str, stem: str) -> None:
+    def _run(self, job: Job, source: str, stem: str, part: int | None) -> None:
         job.status = "running"
         try:
             try:
                 profile = load_profile(self.data_dir / "device.json")
             except ValueError:
                 profile = None  # sem calibragem: faixa padrão
+            # process_fn de teste pode não ter o argumento `part`
+            extra = {} if part is None else {"part": part}
             job.result = self.process_fn(
-                source, self.data_dir, profile, stem, progress=lambda m: setattr(job, "message", m)
+                source,
+                self.data_dir,
+                profile,
+                stem,
+                progress=lambda m: setattr(job, "message", m),
+                **extra,
             )
         except (FetchError, FfmpegError, ValueError, RuntimeError) as e:
             job.error, job.status = str(e), "error"

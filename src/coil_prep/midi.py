@@ -1,8 +1,10 @@
 """Modo melodia: notas (de .mid ou de áudio) -> 1 voz -> faixa da bobina -> onda quadrada."""
 
 import os
+import re
 import tempfile
-from dataclasses import dataclass
+from bisect import bisect_right
+from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path
 
@@ -21,32 +23,167 @@ class Note:
     end: float  # s
     pitch: int  # número MIDI
     amp: float = 1.0  # 0..1; força da nota (amplitude do Basic Pitch, velocity do .mid)
+    part: int = 0  # .mid: trilha*16+canal de origem (ver MidiPart); 0 no áudio
+
+
+@dataclass
+class MidiPart:
+    """Notas de um canal de uma trilha do .mid. Cada instrumento (melodia, baixo, acordes...) vira uma."""
+
+    id: int  # trilha*16+canal
+    name: str
+    notes: list[Note] = field(default_factory=list)
 
 
 def midi_to_hz(pitch: float) -> float:
     return 440.0 * 2 ** ((pitch - 69) / 12)
 
 
-def read_midi(path: Path) -> list[Note]:
-    """Lê um .mid (ignora percussão). mido já resolve tempo -> segundos."""
+def read_midi_parts(path: Path) -> list[MidiPart]:
+    """Lê um .mid separando por trilha+canal (percussão ignorada), na ordem em que aparecem.
+
+    Tempo -> segundos usa o mapa de tempos do arquivo inteiro (set_tempo vive na trilha 0).
+    Nota repetida sem note_off religa (fecha a anterior); nota sem note_off fecha no fim do arquivo.
+    """
     import mido
 
     try:
         mid = mido.MidiFile(str(path))
     except (OSError, ValueError, EOFError) as e:
         raise ValueError(f"MIDI inválido: {path} ({e})") from None
-    notes, active, now = [], {}, 0.0
-    for msg in mid:  # iterar já une as trilhas; msg.time é delta em segundos
-        now += msg.time
-        if msg.type not in ("note_on", "note_off") or msg.channel == DRUM_CHANNEL:
+    tpb = mid.ticks_per_beat
+    if not tpb:
+        raise ValueError("MIDI com tempo em SMPTE não é suportado")
+    changes = sorted(
+        {(t, m.tempo) for t, m in _absolute(mid) if m.type == "set_tempo"}, key=lambda c: c[0]
+    )
+    ticks, secs, tempos = [0], [0.0], [500000]  # padrão do MIDI: 120 bpm
+    for tick, tempo in changes:
+        if tick == ticks[-1]:
+            tempos[-1] = tempo
             continue
-        key = (msg.channel, msg.note)
-        if msg.type == "note_on" and msg.velocity > 0:
-            active.setdefault(key, (now, msg.velocity))
-        elif key in active:
+        secs.append(secs[-1] + (tick - ticks[-1]) * tempos[-1] / 1e6 / tpb)
+        ticks.append(tick)
+        tempos.append(tempo)
+
+    def to_sec(tick: int) -> float:
+        i = bisect_right(ticks, tick) - 1
+        return secs[i] + (tick - ticks[i]) * tempos[i] / 1e6 / tpb
+
+    parts: dict[int, MidiPart] = {}
+    for ti, track in enumerate(mid.tracks):
+        title = next((m.name.strip() for m in track if m.type == "track_name" and m.name), "")
+        active: dict[tuple[int, int], tuple[float, int]] = {}
+        tick = 0
+        last = 0
+
+        def close(key, end_tick, active=active, ti=ti, title=title):
             start, vel = active.pop(key)
-            notes.append(Note(start, now, msg.note, vel / 127))
-    return notes
+            end = to_sec(end_tick)
+            if end > start:
+                pid = ti * 16 + key[0]
+                part = parts.setdefault(pid, MidiPart(pid, _part_name(title, ti, key[0])))
+                part.notes.append(Note(start, end, key[1], vel / 127, pid))
+
+        for msg in track:
+            tick += msg.time
+            last = tick
+            if msg.type not in ("note_on", "note_off") or msg.channel == DRUM_CHANNEL:
+                continue
+            key = (msg.channel, msg.note)
+            if msg.type == "note_on" and msg.velocity > 0:
+                if key in active:
+                    close(key, tick)
+                active[key] = (to_sec(tick), msg.velocity)
+            elif key in active:
+                close(key, tick)
+        for key in list(active):
+            close(key, last)
+    for part in parts.values():
+        part.notes.sort(key=lambda n: (n.start, n.pitch))
+    return sorted(parts.values(), key=lambda p: p.id)
+
+
+def _absolute(mid):
+    """(tick absoluto, mensagem) de todas as trilhas."""
+    for track in mid.tracks:
+        tick = 0
+        for msg in track:
+            tick += msg.time
+            yield tick, msg
+
+
+def _part_name(title: str, track: int, channel: int) -> str:
+    return f"{title or f'Trilha {track + 1}'} (canal {channel + 1})"
+
+
+def read_midi(path: Path) -> list[Note]:
+    """Todas as notas do .mid (todas as trilhas misturadas, sem percussão), por início."""
+    notes = [n for p in read_midi_parts(path) for n in p.notes]
+    return sorted(notes, key=lambda n: (n.start, n.pitch))
+
+
+# "usar todas as trilhas": o comportamento antigo (mistura tudo e deixa a heurística)
+ALL_PARTS = -1
+_MELODY_NAME = re.compile(
+    r"melod|lead|vocal|voice|voz|solo|sing|canto|main|principal", re.IGNORECASE
+)
+_BACKING_NAME = re.compile(
+    r"bass|baix|drum|bater|perc|pad|chord|acord|comp|rhythm|rit", re.IGNORECASE
+)
+
+
+def part_score(part: MidiPart) -> float:
+    """Quão provável é a trilha ser a melodia (heurística; o usuário pode trocar na UI).
+
+    Melodia = toca bastante, uma nota por vez, em registro médio/agudo e com variedade de alturas
+    (baixo e arpejos repetem poucas notas; acordes são polifônicos). O nome da trilha ajuda.
+    """
+    notes = part.notes
+    if not notes:
+        return 0.0
+    sounding, poly = coverage(notes)
+    pitches = sorted(n.pitch for n in notes)
+    median = pitches[len(pitches) // 2]
+    register = min(max((median - 40) / 24, 0.15), 1.0)
+    variety = min(len(set(pitches)) / 8, 1.0)
+    name = 1.5 if _MELODY_NAME.search(part.name) else 0.5 if _BACKING_NAME.search(part.name) else 1
+    return sounding * (1 - poly) ** 2 * register * variety * name
+
+
+def pick_part(parts: list[MidiPart]) -> MidiPart:
+    """Trilha mais provável de ser a melodia; empate vai para a primeira (convenção dos .mid)."""
+    return max(parts, key=lambda p: (round(part_score(p), 6), -p.id))
+
+
+def select_part(parts: list[MidiPart], part: int | None) -> MidiPart:
+    """`part` None = automático; ALL_PARTS = todas misturadas; senão o id (trilha*16+canal)."""
+    if not parts:
+        raise ValueError("nenhuma nota encontrada no MIDI")
+    if part is None:
+        return pick_part(parts)
+    if part == ALL_PARTS:
+        notes = sorted((n for p in parts for n in p.notes), key=lambda n: (n.start, n.pitch))
+        return MidiPart(ALL_PARTS, "Todas as trilhas", notes)
+    for p in parts:
+        if p.id == part:
+            return p
+    raise ValueError(f"trilha {part} não existe neste MIDI")
+
+
+def coverage(notes: list[Note]) -> tuple[float, float]:
+    """(tempo com alguma nota soando, fração desse tempo com 2+ notas), por varredura O(n log n)."""
+    events = sorted([(n.start, 1) for n in notes] + [(n.end, -1) for n in notes])
+    sounding = poly = 0.0
+    count, prev = 0, 0.0
+    for t, d in events:
+        if count:
+            sounding += t - prev
+            if count > 1:
+                poly += t - prev
+        count += d
+        prev = t
+    return sounding, (poly / sounding if sounding else 0.0)
 
 
 def transcribe_audio(path: Path, min_note_ms: float = 80.0) -> list[Note]:
@@ -170,23 +307,19 @@ def merge_same_pitch(segments: list[tuple], merge_gap: float) -> list[tuple]:
 
 
 def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: int = 24) -> int:
-    """Semitons (inteiro) para transpor a música INTEIRA e caber o máximo de tempo na faixa.
+    """Semitons (múltiplo de 12) para transpor a música INTEIRA e caber o máximo de tempo na faixa.
 
-    Melhor que dobrar nota a nota: mantém o contorno da melodia (só muda a tonalidade).
-    Prefere deslocar só por oitavas (preserva a tonalidade); semitons só se couber >5% mais tempo.
+    Só oitavas: preserva todas as classes de altura (a tonalidade). Deslocar por semitons (versão
+    antiga) cabia só um pouco mais de tempo na faixa, mas a música saía em outro tom; o que sobra
+    fora da faixa é dobrado depois por `contour_fold`, que também mantém a classe de altura.
     Desempate: menor |deslocamento| (0 se a música já cabe).
     """
 
     def in_range(shift: int) -> float:
         return sum(b - a for a, b, (p,) in segments if min_hz <= midi_to_hz(p + shift) <= max_hz)
 
-    def best(shifts):
-        return max(shifts, key=lambda s: (round(in_range(s), 3), -abs(s)))
-
-    anywhere = best(range(-max_shift, max_shift + 1))
-    octave = best(range(-max_shift // 12 * 12, max_shift // 12 * 12 + 1, 12))
-    # prefere só mudar de oitava (mantém a tonalidade) se perder menos de 5% do tempo
-    return octave if in_range(octave) >= in_range(anywhere) * 0.95 else anywhere
+    reach = max_shift // 12 * 12
+    return max(range(-reach, reach + 1, 12), key=lambda s: (round(in_range(s), 3), -abs(s)))
 
 
 def transpose(segments: list[tuple], shift: int) -> list[tuple]:
@@ -265,19 +398,10 @@ def render(
 
 def overlap_fraction(notes: list[Note]) -> float:
     """Fração do tempo com notas soando em que há 2 ou mais notas ao mesmo tempo."""
-    cuts = sorted({t for n in notes for t in (n.start, n.end)})
-    active = poly = 0.0
-    for a, b in pairwise(cuts):
-        mid = (a + b) / 2
-        count = sum(n.start <= mid < n.end for n in notes)
-        if count:
-            active += b - a
-            if count > 1:
-                poly += b - a
-    return poly / active if active else 0.0
+    return coverage(notes)[1]
 
 
-def notes_from(path: Path, min_note_ms: float = 80.0) -> list[Note]:
+def notes_from(path: Path, min_note_ms: float = 80.0, part: int | None = None) -> list[Note]:
     if path.suffix.lower() in MIDI_EXTS:
-        return read_midi(path)
+        return select_part(read_midi_parts(path), part).notes
     return transcribe_audio(path, min_note_ms)
