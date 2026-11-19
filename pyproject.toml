@@ -15,6 +15,12 @@ dependencies = ["numpy", "mido", "yt-dlp[default]", "fastapi", "uvicorn", "pytho
 separate = ["demucs"]
 # áudio -> notas; no Linux exige Python 3.10 ou 3.11. numpy<2 (TensorFlow) e setuptools<81 (resampy usa pkg_resources)
 midi = ["basic-pitch", "numpy<2", "setuptools<81"]
+# mesmas dependências do Basic Pitch SEM o TensorFlow (~2 GB): o pacote traz o modelo ONNX e roda com
+# onnxruntime. Exige instalar o basic-pitch com `pip install --no-deps basic-pitch` (o Dockerfile faz isso)
+midi-onnx = [
+  "onnxruntime", "librosa>=0.8", "resampy<0.4.3,>=0.2.2", "mir_eval>=0.6", "pretty_midi>=0.2.9",
+  "scipy>=1.4.1", "scikit-learn", "typing-extensions", "setuptools<81",
+]
 dev = ["pytest", "ruff", "httpx"]
 
 [tool.setuptools.packages.find]
