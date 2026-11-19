@@ -133,22 +133,35 @@ _BACKING_NAME = re.compile(
 )
 
 
+def chordiness(notes: list[Note]) -> float:
+    """Fração dos "momentos de ataque" que são acordes (3+ notas começando juntas, ~30 ms).
+
+    Pads e acompanhamento em acordes dão ~1; melodia/riff dá perto de 0, mesmo com 1-2 notas
+    de reforço (baixo dobrando) aqui e ali.
+    """
+    onsets: dict[int, int] = {}
+    for n in notes:
+        k = round(n.start / 0.03)
+        onsets[k] = onsets.get(k, 0) + 1
+    return sum(c >= 3 for c in onsets.values()) / len(onsets) if onsets else 0.0
+
+
 def part_score(part: MidiPart) -> float:
     """Quão provável é a trilha ser a melodia (heurística; o usuário pode trocar na UI).
 
-    Melodia = toca bastante, uma nota por vez, em registro médio/agudo e com variedade de alturas
-    (baixo e arpejos repetem poucas notas; acordes são polifônicos). O nome da trilha ajuda.
+    Melodia = toca bastante, não é só acorde, em registro médio/agudo e com variedade de alturas
+    (baixo e arpejos repetem poucas notas; pads são acordes). O nome da trilha ajuda.
     """
     notes = part.notes
     if not notes:
         return 0.0
-    sounding, poly = coverage(notes)
+    sounding, _ = coverage(notes)
     pitches = sorted(n.pitch for n in notes)
     median = pitches[len(pitches) // 2]
     register = min(max((median - 40) / 24, 0.15), 1.0)
     variety = min(len(set(pitches)) / 8, 1.0)
     name = 1.5 if _MELODY_NAME.search(part.name) else 0.5 if _BACKING_NAME.search(part.name) else 1
-    return sounding * (1 - poly) ** 2 * register * variety * name
+    return sounding * (1 - chordiness(notes)) ** 2 * register * variety * name
 
 
 def pick_part(parts: list[MidiPart]) -> MidiPart:
@@ -169,6 +182,53 @@ def select_part(parts: list[MidiPart], part: int | None) -> MidiPart:
         if p.id == part:
             return p
     raise ValueError(f"trilha {part} não existe neste MIDI")
+
+
+def silent_regions(notes: list[Note], end: float, min_gap: float) -> list[tuple[float, float]]:
+    """Trechos de [0, end] sem nenhuma nota por pelo menos `min_gap` s (pausas curtas não contam)."""
+    regions, cursor = [], 0.0
+    for n in sorted(notes, key=lambda n: n.start):
+        if n.start - cursor >= min_gap:
+            regions.append((cursor, n.start))
+        cursor = max(cursor, n.end)
+    if end - cursor >= min_gap:
+        regions.append((cursor, end))
+    return regions
+
+
+def combine_parts(
+    parts: list[MidiPart], min_gap: float = 1.0, rel: float = 0.4
+) -> tuple[list[Note], dict[int, float]]:
+    """Melodia de várias trilhas: a melhor trilha manda; as outras só preenchem as pausas dela.
+
+    Num .mid real a melodia costuma passar de um instrumento para outro (riff de sintetizador,
+    voz, ponte...), então uma trilha só deixa buracos onde ela cala. Aqui a trilha mais provável
+    de ser a melodia fica inteira; as demais que também parecem melodia (pontuação >= `rel` x a
+    da melhor; baixo e pads ficam de fora) entram só dentro de pausas de >= `min_gap` s, cortadas
+    nas bordas da pausa: nunca interrompem a trilha principal, e o resultado continua em 1 voz.
+    Retorna (notas, segundos soando por trilha).
+    """
+    ranked = sorted(((part_score(p), p) for p in parts), key=lambda t: (-t[0], t[1].id))
+    ranked = [(sc, p) for sc, p in ranked if sc > 0]
+    if not ranked:
+        raise ValueError("nenhuma nota encontrada no MIDI")
+    end = max(n.end for _, p in ranked for n in p.notes)
+    best = ranked[0][0]
+    notes = list(ranked[0][1].notes)
+    used = {ranked[0][1].id: coverage(notes)[0]}
+    for score, part in ranked[1:]:
+        if score < rel * best:
+            continue
+        added = []
+        for lo, hi in silent_regions(notes, end, min_gap):
+            for n in part.notes:
+                start, stop = max(n.start, lo), min(n.end, hi)
+                if stop - start >= 0.02:
+                    added.append(Note(start, stop, n.pitch, n.amp, n.part))
+        if added:
+            used[part.id] = coverage(added)[0]
+            notes += added
+    return sorted(notes, key=lambda n: (n.start, n.pitch)), used
 
 
 def coverage(notes: list[Note]) -> tuple[float, float]:

@@ -331,7 +331,8 @@ def test_process_keeps_every_melody_note_with_backing(tmp_path):
 
     got = notes_mod.load(res.notes_file)["current"]
     assert [n.pitch % 12 for n in got] == [p % 12 for p in MELODY]
-    assert res.part == 0 and len(res.parts) == 4
+    assert res.part is None and len(res.parts) == 4  # automático = melodia combinada
+    assert {p["id"] for p in res.parts if p["used"] > 0} == {0}  # nada do acompanhamento entrou
 
 
 def test_process_part_override_and_all(tmp_path):
@@ -404,3 +405,82 @@ def test_every_teslacoil_keyboard_note_is_reachable_with_its_pitch_class():
         seg = contour_fold([(0, 1, (pitch,))], 100, 1000)
         folded = seg[0][2][0]
         assert lo <= folded <= hi and (folded - pitch) % 12 == 0
+
+
+# --- melodia que passa de uma trilha para outra (ex.: "Blue": riff de sintetizador + voz) ---
+
+RIFF = [62, 67, 70, 72]  # trilha A: riff, toca nos compassos pares
+VOICE = [57, 55, 53, 55, 57, 60]  # trilha B: voz, toca nos ímpares
+
+
+def handoff_mid(tmp_path):
+    """Trilha 0 (canal 0) toca em 0-4 s e 8-12 s; canal 1 em 4-8 s e 12-16 s; + baixo e pad
+    (acordes) o tempo todo. Cada trilha sozinha deixa buracos de 4 s."""
+    ev = []
+    for base in (0, 16):  # em beats (1 beat = 0,5 s): 0-4 s e 8-12 s
+        ev += [(0, RIFF[i % 4], base + i * 0.5, 0.5) for i in range(16)]
+    for start_s in (4, 12):
+        b = start_s * 2  # em beats
+        ev += [(1, VOICE[i % 6], b + i * 0.5, 0.5) for i in range(16)]
+    ev += [(2, 36 + (i % 3) * 2, i, 1) for i in range(32)]  # baixo contínuo
+    ev += [(3, p, i * 2, 2) for i in range(16) for p in (65, 69, 72)]  # pad em acordes
+    path = tmp_path / "handoff.mid"
+    make_mid(path, ev)
+    return path
+
+
+def sounding_fraction(segments, total):
+    return sum(b - a for a, b, _ in segments) / total
+
+
+def test_combined_melody_fills_the_holes_of_a_single_track(tmp_path):
+    from coil_prep.midi import combine_parts, read_midi_parts
+
+    parts = read_midi_parts(handoff_mid(tmp_path))
+    notes, used = combine_parts(parts)
+    assert set(used) == {0, 1}  # baixo (2) e pad em acordes (3) não entram
+    line = melody_line(notes, 0.06, 0.02, 0.02)
+    assert sounding_fraction(line, 16) > 0.85  # antes: ~50% (só a trilha principal)
+    # cada trecho tem as alturas da trilha certa
+    first = {p % 12 for a, b, (p,) in line if a < 4}
+    second = {p % 12 for a, b, (p,) in line if 4 <= a < 8}
+    assert first <= {p % 12 for p in RIFF} and second <= {p % 12 for p in VOICE}
+
+
+def test_combined_never_interrupts_the_main_track(tmp_path):
+    from coil_prep.midi import combine_parts, read_midi_parts
+
+    # canal 1 toca o tempo todo e canal 0 também (mais notas): a principal fica intacta
+    ev = [(0, 60 + (i % 5), i * 0.5, 0.5) for i in range(16)]
+    ev += [(1, 72 + (i % 4), i * 0.5, 0.5) for i in range(16)]
+    path = tmp_path / "full.mid"
+    make_mid(path, ev)
+    notes, used = combine_parts(read_midi_parts(path))
+    assert len(used) == 1 and len(notes) == 16
+
+
+def test_short_pauses_are_not_filled(tmp_path):
+    from coil_prep.midi import combine_parts, read_midi_parts
+
+    # pausa de 0,5 s (< 1 s) na principal; a secundária toca nela: não deve entrar
+    ev = [(0, 60 + i % 5, i * 0.5, 0.5) for i in range(8)]
+    ev += [(0, 60 + i % 5, 5 + i * 0.5, 0.5) for i in range(8)]
+    ev += [(1, 76 + i % 4, i * 0.5, 0.5) for i in range(24)]
+    path = tmp_path / "pause.mid"
+    make_mid(path, ev)
+    _, used = combine_parts(read_midi_parts(path), rel=0)
+    assert set(used) == {1}  # a principal é a que mais toca; nada entra em pausa curta
+
+
+def test_pipeline_combined_melody_is_not_dropped_by_calibration_range(tmp_path):
+    """Faixa estreita (100-600 Hz) só dobra de oitava; não descarta nem corta notas."""
+    from coil_prep import notes as notes_mod
+
+    path = handoff_mid(tmp_path)
+    narrow = process(str(path), tmp_path / "n", Profile(100, 600), "mix")
+    wide = process(str(path), tmp_path / "w", Profile(100, 2000), "mix")
+    assert narrow.segments == wide.segments
+    cur_n = notes_mod.load(narrow.notes_file)["current"]
+    cur_w = notes_mod.load(wide.notes_file)["current"]
+    assert [round(n.start, 3) for n in cur_n] == [round(n.start, 3) for n in cur_w]
+    assert [n.pitch % 12 for n in cur_n] == [n.pitch % 12 for n in cur_w]  # mesma música
