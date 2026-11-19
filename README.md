@@ -24,6 +24,15 @@ git clone https://github.com/dudushy/audio2tesla-coil && cd audio2tesla-coil
 docker compose up --build
 ```
 
+**Instalação lenta ou sem rede boa?** O build não baixa mais o TensorFlow: o Basic Pitch roda via ONNX (`onnxruntime`), o mesmo modelo e resultado, ~500 MB instalados em vez de ~2 GB. O maior download restante é o PyTorch (CPU) do Demucs. Opções de build, por variável de ambiente ou arquivo `.env` ao lado do `docker-compose.yml`:
+
+```bash
+WITH_SEPARATE=0 docker compose build          # sem Demucs/PyTorch (só 'mix' e .mid; ~300 MB a menos)
+PIP_INDEX_URL=https://seu-mirror/simple TORCH_INDEX_URL=https://seu-mirror/whl/cpu docker compose build
+```
+
+Com `WITH_SEPARATE=0` a opção de separar stems falha com uma mensagem clara; refaça o build com `WITH_SEPARATE=1` para ter de volta.
+
 Abra **http://localhost:8000** no navegador do notebook ligado à bobina:
 
 1. Cole o link do vídeo ou envie um arquivo (áudio ou `.mid`, até 100 MB). Na aba Arquivo, "Buscar MIDI no BitMidi" lista resultados do bitmidi.com: abra a página, baixe o `.mid` e envie-o. O BitMidi não tem API e o robots.txt dele proíbe `/uploads/`, então o app só lê as páginas de busca (cache de 10 min, 1 req/s) e não baixa os arquivos por você.
@@ -67,7 +76,7 @@ ruff check . && pytest
 COIL_DATA=./data uvicorn coil_prep.web.app:create_default_app --factory --reload
 ```
 
-Extras: `[midi]` (Basic Pitch; fixa `numpy<2` e `setuptools<81`) e `[separate]` (Demucs + PyTorch, vários GB). Sem eles, `.mid` e `mix` funcionam. Os testes geram áudio sintético; **nunca commite música ou áudio com copyright** (o `.gitignore` bloqueia mp3/wav/flac/mid/ogg).
+Extras: `[midi]` (Basic Pitch com TensorFlow; fixa `numpy<2` e `setuptools<81`), `[midi-onnx]` (as mesmas dependências sem TensorFlow; rode depois `pip install --no-deps basic-pitch==0.4.0`, como o Docker faz) e `[separate]` (Demucs + PyTorch, vários GB). Sem eles, `.mid` e `mix` funcionam. Os testes geram áudio sintético; **nunca commite música ou áudio com copyright** (o `.gitignore` bloqueia mp3/wav/flac/mid/ogg).
 
 ## Créditos
 

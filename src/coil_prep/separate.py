@@ -23,7 +23,8 @@ def separate(src: Path, stem: str = DEFAULT_STEM, out_dir: Path = DEFAULT_DIR) -
         return target
     if importlib.util.find_spec("demucs") is None:
         raise RuntimeError(
-            "Demucs não instalado. Instale o extra: pip install -e '.[separate]'\n"
+            "Demucs não instalado. Instale o extra: pip install -e '.[separate]' "
+            "(no Docker: rebuild com WITH_SEPARATE=1)\n"
             "(baixa o PyTorch, vários GB; o modelo é baixado na primeira execução)"
         )
     cmd = [

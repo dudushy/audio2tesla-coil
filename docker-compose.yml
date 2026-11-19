@@ -1,6 +1,12 @@
 services:
   coil:
-    build: .
+    build:
+      context: .
+      args:
+        # opcionais: defina no shell ou em .env (veja o README)
+        WITH_SEPARATE: ${WITH_SEPARATE:-1}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     ports:
       # só no próprio notebook: a API não tem autenticação e baixa vídeos a pedido
       - "127.0.0.1:8000:8000"
