@@ -268,6 +268,15 @@ def transcribe_audio(path: Path, min_note_ms: float = 80.0) -> list[Note]:
     return [Note(float(s), float(e), int(p), float(a)) for s, e, p, a, *_ in events]
 
 
+def drop_ghost_notes(notes: list[Note], rel: float = 0.25) -> list[Note]:
+    """Tira notas de .mid com velocity < `rel` x a mediana da própria trilha (ruído/notas fantasma)."""
+    by_part: dict[int, list[float]] = {}
+    for n in notes:
+        by_part.setdefault(n.part, []).append(n.amp)
+    floor = {k: rel * sorted(v)[len(v) // 2] for k, v in by_part.items()}
+    return [n for n in notes if n.amp >= floor[n.part]]
+
+
 def skyline(
     notes: list[Note], voices: int = 1, min_note: float = 0.06, gap: float = 0.02
 ) -> list[tuple]:
@@ -398,25 +407,45 @@ def median_note_ms(segments: list[tuple]) -> float:
     return 1000 * durs[len(durs) // 2] if durs else 0.0
 
 
-def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tuple]:
-    """Escolhe a oitava de cada nota (1 voz) pelo contorno: a mais próxima da nota anterior.
+OCTAVE_COST = 1.0  # custo de tirar uma nota da oitava original (1 por oitava) no contour_fold
+LEAP_COST = 12.0  # custo de mudar o deslocamento de oitava entre duas notas (= 1 oitava de salto)
 
-    Dobrar nota a nota (fold_to_range) cria saltos de oitava falsos quando a melodia cruza
-    a borda da faixa. A primeira nota usa fold_to_range; as seguintes ficam, dentro da faixa,
-    na oitava que menos pula em relação à anterior. Preserva a classe de altura.
+
+def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tuple]:
+    """Escolhe a oitava de cada nota (1 voz) para caber na faixa sem quebrar a melodia.
+
+    Preserva a classe de altura. Minimiza (por programação dinâmica, ótimo exato): saltos de
+    oitava introduzidos entre notas vizinhas (LEAP_COST por oitava) + notas fora da oitava
+    original (OCTAVE_COST). Assim, nota dentro da faixa não sai do lugar sem motivo, e quando um
+    trecho cruza a borda a frase inteira sobe/desce junto em vez de uma nota virar um salto falso.
+    (A versão antiga ia nota a nota pela "oitava mais próxima da anterior": um erro se acumulava e
+    35% das notas da Blue saíam uma oitava fora, mesmo com só 3% do tempo fora da faixa.)
     """
-    out, prev = [], None
-    for a, b, (p,) in segments:
-        if prev is None:
-            q = round(69 + 12 * np.log2(fold_to_range(p, min_hz, max_hz) / 440.0))
-        else:
-            cands = [
-                p + 12 * k for k in range(-10, 11) if min_hz <= midi_to_hz(p + 12 * k) <= max_hz
-            ]
-            q = min(cands, key=lambda c: (abs(c - prev), c))
-        out.append((a, b, (int(q),)))
-        prev = q
-    return out
+    if not segments:
+        return []
+    if max_hz < 2 * min_hz:
+        raise ValueError(f"faixa {min_hz:g}-{max_hz:g} Hz tem menos de 1 oitava")
+    options = []  # por nota: deslocamentos k (em oitavas) que cabem na faixa
+    for _, _, (p, *_) in segments:
+        ks = [k for k in range(-10, 11) if min_hz <= midi_to_hz(p + 12 * k) <= max_hz]
+        options.append(ks)
+    cost = {k: OCTAVE_COST * abs(k) for k in options[0]}
+    back = []
+    for ks in options[1:]:
+        new, prev_of = {}, {}
+        for k in ks:
+            best = min(cost, key=lambda j: cost[j] + LEAP_COST * abs(k - j))
+            new[k] = cost[best] + LEAP_COST * abs(k - best) + OCTAVE_COST * abs(k)
+            prev_of[k] = best
+        cost = new
+        back.append(prev_of)
+    k = min(cost, key=lambda j: (cost[j], abs(j)))
+    chosen = [k]
+    for prev_of in reversed(back):
+        k = prev_of[k]
+        chosen.append(k)
+    chosen.reverse()
+    return [(a, b, (p + 12 * k,)) for (a, b, (p, *_)), k in zip(segments, chosen, strict=True)]
 
 
 def fold_to_range(pitch: int, min_hz: float, max_hz: float) -> float:

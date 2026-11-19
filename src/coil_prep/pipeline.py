@@ -17,6 +17,7 @@ from .midi import (
     combine_parts,
     contour_fold,
     coverage,
+    drop_ghost_notes,
     median_note_ms,
     melody_line,
     notes_from,
@@ -25,6 +26,7 @@ from .midi import (
     read_midi_parts,
     render,
     select_part,
+    skyline,
     transpose,
 )
 from .profile import Profile
@@ -36,6 +38,7 @@ FALLBACK_RANGE = (100.0, 800.0)
 OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
 MAX_PEAK = -3.0
 OUT_OF_RANGE_WARN = 0.2  # mesmo após transpor, muita nota fora da faixa vira salto de oitava
+MOVED_WARN = 0.05  # acima disso avisa que parte da melodia mudou de oitava para caber na faixa
 FAST_NOTE_MS = 100  # mediana abaixo disso: o arco não tem tempo de formar (Mario ~140 ms)
 
 Progress = Callable[[str], None]
@@ -55,6 +58,7 @@ class Result:
     shift: int  # semitons aplicados à música inteira para caber na faixa
     out_of_range: float  # fração do tempo fora da faixa depois do shift (antes de dobrar)
     median_note_ms: float
+    moved: float  # fração do tempo em notas que saíram da oitava original para caber na faixa
     peak_db: float
     clipped: bool
     parts: tuple = ()  # .mid: trilhas disponíveis (dicts id/name/notes/lo/hi/chosen) para o usuário trocar
@@ -120,13 +124,22 @@ def process(
         )
     else:
         notes = notes_from(origin)
-    segments = melody_line(notes, 0.06, 0.02, 0.02)
+    # .mid tem notas limpas e a voz mais aguda é a melodia (baixo/raiz sustentado fica abaixo);
+    # a pontuação por amplitude do melody_line serve para notas transcritas de áudio, não para
+    # velocity de MIDI (raízes de violão, longas e fortes, ganhavam do riff: 29% do tempo no Blue)
+    segments = (
+        skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
+        if is_midi
+        else melody_line(notes, 0.06, 0.02, 0.02)
+    )
     if not segments:
         raise ValueError("nenhuma nota detectada; tente outro som (stem) ou outro arquivo")
     shift = best_shift(segments, min_hz, max_hz)
     segments = transpose(segments, shift)
     out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
+    shifted = segments
     segments = contour_fold(segments, min_hz, max_hz)
+    moved = _moved_fraction(shifted, segments)
 
     progress("Gerando a onda quadrada...")
     suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
@@ -150,11 +163,18 @@ def process(
         shift=shift,
         out_of_range=out_of_range,
         median_note_ms=median_note_ms(segments),
+        moved=moved,
         peak_db=report.peak_db,
         clipped=report.clipped,
         parts=parts_info,
         part=chosen_part,
     )
+
+
+def _moved_fraction(before: list[tuple], after: list[tuple]) -> float:
+    total = sum(b - a for a, b, _ in before)
+    moved = sum(b - a for (a, b, p), (_, _, q) in zip(before, after, strict=True) if p != q)
+    return moved / total if total else 0.0
 
 
 def apply_edit(result: Result, raw_notes: list[dict]) -> tuple[Result, list[notes_mod.EditNote]]:
