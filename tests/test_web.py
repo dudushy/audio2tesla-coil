@@ -316,3 +316,22 @@ def test_midi_part_choice_via_api(client, tmp_path):
 
 def test_state_exposes_live_keyboard_level(client):
     assert client.get("/api/state").json()["peak_db"] == -8.0
+
+
+def test_style_presets_are_reported_and_switching_rerenders(client, tmp_path):
+    r = client.post(
+        "/api/jobs", data={"stem": "mix"}, files={"file": ("a.mid", midi_bytes(tmp_path))}
+    )
+    job = wait_done(client, r.json()["id"])
+    res = job["result"]
+    ids = [p["id"] for p in res["fidelity"]["presets"]]
+    assert ids == ["auto", "classic", "staccato", "bright", "thin"]
+    before = client.get(f"/api/jobs/{job['id']}/audio/result").content
+    assert (
+        client.put(f"/api/jobs/{job['id']}/style", json={"style": "bright"}).json()["duty"] == 0.25
+    )
+    after = client.get(f"/api/jobs/{job['id']}/audio/result").content
+    assert after != before and after[:4] == b"RIFF"
+    assert client.get(f"/api/jobs/{job['id']}").json()["result"]["style"] == "bright"
+    assert client.put(f"/api/jobs/{job['id']}/style", json={"style": "x"}).status_code == 422
+    assert client.put("/api/jobs/nope/style", json={"style": "classic"}).status_code == 404

@@ -460,23 +460,52 @@ def fold_to_range(pitch: int, min_hz: float, max_hz: float) -> float:
     return f
 
 
+def square(freq: float, t: np.ndarray, duty: float = 0.5) -> np.ndarray:
+    """Onda quadrada em ±1 com ciclo de trabalho `duty` (0.5 = simétrica)."""
+    if duty == 0.5:
+        return np.where(np.sin(2 * np.pi * freq * t) >= 0, 1.0, -1.0)
+    return np.where((freq * t) % 1.0 < duty, 1.0, -1.0)
+
+
+def gated(segments: list[tuple], gate: float, min_on: float = 0.03) -> list[tuple]:
+    """Mantém só a fração `gate` do início de cada trecho (staccato); 1.0 = legato, como veio.
+
+    Nunca deixa o trecho com menos de `min_on` s (ou o trecho inteiro, se já for menor).
+    """
+    if gate >= 1.0:
+        return segments
+    return [(a, a + max(gate * (b - a), min(b - a, min_on)), p) for a, b, p in segments]
+
+
 def render(
-    segments: list[tuple], min_hz: float, max_hz: float, peak_db: float = -4.0
+    segments: list[tuple],
+    min_hz: float,
+    max_hz: float,
+    peak_db: float = -4.0,
+    duty: float = 0.5,
+    gate: float = 1.0,
+    rate: int = RATE,
 ) -> np.ndarray:
-    """Onda quadrada, uma frequência (ou soma de vozes) por segmento; silêncio fora das notas."""
+    """Onda quadrada, uma frequência (ou soma de vozes) por segmento; silêncio fora das notas.
+
+    `duty` é o ciclo de trabalho e `gate` a fração de cada nota que soa (ver `gated`); o padrão
+    (0.5, 1.0) é a onda que a bobina já tocou bem. Com duty != 0.5 tira-se o nível DC (o
+    transformador/placa não passa DC) e o pico é normalizado, então o resultado é pulso estreito e alto.
+    """
     if not segments:
         raise ValueError("nenhuma nota encontrada")
-    total = int(np.ceil(segments[-1][1] * RATE)) + 1
+    end = segments[-1][1]
+    segments = gated(segments, gate)
+    total = int(np.ceil(end * rate)) + 1
     out = np.zeros(total)
-    ramp = int(0.002 * RATE)  # 2 ms evita estalo na troca de nota
-    for start, end, pitches in segments:
-        i, j = int(start * RATE), int(end * RATE)
-        t = np.arange(i, j) / RATE  # tempo absoluto: fase contínua entre segmentos iguais
-        wave = sum(
-            np.where(np.sin(2 * np.pi * fold_to_range(p, min_hz, max_hz) * t) >= 0, 1.0, -1.0)
-            for p in pitches
-        )
+    ramp = int(0.002 * rate)  # 2 ms evita estalo na troca de nota
+    for start, stop, pitches in segments:
+        i, j = int(start * rate), int(stop * rate)
+        t = np.arange(i, j) / rate  # tempo absoluto: fase contínua entre segmentos iguais
+        wave = sum(square(fold_to_range(p, min_hz, max_hz), t, duty) for p in pitches)
         wave = wave / len(pitches)
+        if duty != 0.5:
+            wave = (wave - (2 * duty - 1)) / (2 * max(duty, 1 - duty))
         r = min(ramp, len(wave) // 2)
         if r:
             wave[:r] *= np.linspace(0, 1, r)

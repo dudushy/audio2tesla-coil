@@ -60,6 +60,10 @@ class Job:
                 "filename": r.wav.name,
                 "parts": [{**p, "chosen": p["id"] == r.part} for p in r.parts],
                 "part": r.part,
+                "style": r.style,
+                "duty": r.duty,
+                "gate": r.gate,
+                "fidelity": r.fidelity,
             }
         return data
 

@@ -119,6 +119,11 @@
       <option value="0.5">0,5x</option><option value="0.75">0,75x</option>
       <option value="1" selected>1x</option><option value="1.25">1,25x</option><option value="1.5">1,5x</option>
     </select>
+    <div id="box-style">
+      <label for="style">Estilo da onda (timbre)</label>
+      <select id="style"></select>
+      <p id="style-info" class="muted" style="margin:4px 0 0"></p>
+    </div>
     <div id="box-original">
       <label>Original</label>
       <audio id="audio-original" controls preload="none"></audio>
@@ -342,6 +347,29 @@ function setDownloadLink() {
   const q = speed === 1 ? "" : `&speed=${speed}`;
   $("download").href = `/api/jobs/${currentJob}/audio/result?download=true${q}`;
 }
+function showStyle(r) {
+  const f = r.fidelity || {}, sel = $("style");
+  sel.innerHTML = "";
+  for (const p of f.presets || []) {
+    const sc = p.scores ? ` · score ${Math.round(p.scores.total * 100)}` : "";
+    const hint = p.id === "auto" ? ` → ${Math.round(p.duty * 100)}%/${Math.round(p.gate * 100)}%` : "";
+    sel.add(new Option(`${p.label}${hint}${sc}`, p.id));
+  }
+  sel.value = r.style;
+  const cur = (f.presets || []).find((p) => p.id === r.style), s = cur && cur.scores;
+  $("style-info").textContent = s
+    ? `Nota ${Math.round(s.note * 100)}% · início ${Math.round(s.onset * 100)}% · envelope ${Math.round(s.envelope * 100)}%${s.brightness == null ? "" : ` · brilho ${Math.round(s.brightness * 100)}%`} (parecença com o original, medida no computador; só o seu ouvido na bobina decide). Duty = largura do pulso; "notas N%" = quanto de cada nota soa.`
+    : "Sem medida para este preset; teste de ouvido.";
+}
+$("style").onchange = async (e) => {
+  const res = await fetch(`/api/jobs/${currentJob}/style`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ style: e.target.value }),
+  });
+  if (!res.ok) { $("style-info").textContent = "Não consegui trocar o estilo."; return; }
+  const job = await (await fetch(`/api/jobs/${currentJob}`)).json();
+  showStyle(job.result); setResultSrc(); setDownloadLink();
+  $("audio-result").play().catch(() => {});
+};
 $("speed").onchange = (e) => { speed = parseFloat(e.target.value); setResultSrc(); };
 
 function showResult(job) {
@@ -355,6 +383,7 @@ function showResult(job) {
   $("result").classList.remove("hidden");
   speed = 1; $("speed").value = "1"; setResultSrc();
   showParts(r);
+  showStyle(r);
   $("box-original").classList.toggle("hidden", !r.has_original);
   if (r.has_original) $("audio-original").src = base + "original";
   setDownloadLink();
