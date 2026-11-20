@@ -54,6 +54,10 @@ O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma d
 - **Faixa da bobina:** sem calibragem o app usa 100–800 Hz. Abra **Calibrar a bobina** na página, toque os tons de teste (volume BAIXO), anote quais soam como nota clara e salve o menor e o maior Hz (a faixa precisa ter pelo menos 1 oitava). Fica em `data/device.json`.
 - A porta fica só em `127.0.0.1`: a API não tem autenticação e baixa vídeos a pedido. Não a exponha na rede sem proteção.
 
+### Estilo da onda (timbre)
+
+Uma quadrada monofônica tem timbre fixo; o que dá para variar é o **duty** (largura do pulso, muda os harmônicos) e a **articulação** (quanto de cada nota soa: legato x staccato). Depois de gerar, o app mede a parecença do WAV com o original (o áudio/stem, ou as notas do `.mid`): nota certa, início das notas, envelope de energia e brilho (centroide espectral), e escolhe o melhor entre alguns presets. O padrão continua sendo o clássico (50%, legato) a menos que outro ganhe com folga; troque o preset em "Estilo da onda" e ouça na bobina. O score é um proxy medido no computador, **não** substitui o teste de ouvido (duty ≠ 50% e notas encurtadas ainda não foram validados na bobina). Código: `src/coil_prep/fidelity.py`.
+
 ### Baixar de links
 
 O download usa o [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) e converte para WAV 44,1 kHz, o formato de trabalho (a fonte do YouTube já é Opus/AAC; passar por MP3 só adicionaria perda). Baixe só conteúdo que você tem direito de usar: os termos do YouTube restringem downloads fora dos meios oficiais. O yt-dlp quebra quando o YouTube muda; atualize com `docker compose build --no-cache`. Nunca versione áudio.

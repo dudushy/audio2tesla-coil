@@ -1,9 +1,10 @@
 """Fluxo único: URL ou arquivo -> (stem) -> melodia -> onda quadrada -> WAV para a bobina."""
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from . import fidelity
 from . import notes as notes_mod
 from .analysis import analyze
 from .calibrate import write_mono_wav
@@ -33,6 +34,7 @@ from .profile import Profile
 from .separate import separate
 
 STEM_CHOICES = ("other", "vocals", "mix")  # "mix" = sem separação
+STYLE_CHOICES = ("auto", *fidelity.PRESETS)  # "auto" = melhor score da busca duty x gate
 PEAK_DB = -8.0  # nível que a bobina tocou bem (referência Mario)
 FALLBACK_RANGE = (100.0, 800.0)
 OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
@@ -63,6 +65,10 @@ class Result:
     clipped: bool
     parts: tuple = ()  # .mid: trilhas disponíveis (dicts id/name/notes/lo/hi/chosen) para o usuário trocar
     part: int | None = None  # .mid: id da trilha usada
+    duty: float = 0.5  # ciclo de trabalho da onda (0.5 = quadrada simétrica)
+    gate: float = 1.0  # fração de cada nota que soa (1.0 = legato)
+    style: str = "classic"  # preset escolhido (STYLE_CHOICES)
+    fidelity: dict = field(default_factory=dict)  # ver `fidelity_info`
 
     @property
     def ok(self) -> bool:
@@ -76,6 +82,7 @@ def process(
     stem: str = "other",
     progress: Progress = lambda _msg: None,
     part: int | None = None,
+    style: str = "auto",
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
@@ -84,6 +91,8 @@ def process(
     """
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
+    if style not in STYLE_CHOICES:
+        raise ValueError(f"estilo inválido: {style}")
     min_hz, max_hz = (profile.min_hz, profile.max_hz) if profile else FALLBACK_RANGE
 
     if is_url(source):
@@ -145,7 +154,16 @@ def process(
     suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
     out = workdir / "output" / f"{original.stem}.{stem}{suffix}.wav"  # um arquivo por stem/trilha
     out.parent.mkdir(parents=True, exist_ok=True)
-    write_mono_wav(out, render(segments, min_hz, max_hz, PEAK_DB), RATE)
+    progress("Medindo a fidelidade ao original...")
+    ref = (
+        fidelity.reference_from_notes(skyline(notes, 1, 0.06, 0.0))
+        if is_midi
+        else fidelity.reference_from_audio(decode_mono(origin, RATE), min_hz, max_hz)
+    )
+    chosen, table = fidelity.search(ref, segments, min_hz, max_hz)
+    info = fidelity_info(table, chosen)
+    key, duty, gate = pick_style(info, style)
+    write_mono_wav(out, render(segments, min_hz, max_hz, PEAK_DB, duty, gate), RATE)
     editable = notes_mod.from_segments(segments)
     notes_file = out.with_suffix(".notes.json")
     notes_mod.save(notes_file, min_hz, max_hz, editable, editable)
@@ -168,6 +186,64 @@ def process(
         clipped=report.clipped,
         parts=parts_info,
         part=chosen_part,
+        duty=duty,
+        gate=gate,
+        style=key,
+        fidelity=info,
+    )
+
+
+def fidelity_info(table: list, auto: "fidelity.Style") -> dict:
+    """Resultado da busca em formato JSON: o estilo automático e o score de cada preset."""
+    rows = {(st.duty, st.gate): sc for st, sc in table}
+    presets = [
+        {
+            "id": "auto",
+            "label": "Automático (melhor score)",
+            "duty": auto.duty,
+            "gate": auto.gate,
+            "scores": rows[(auto.duty, auto.gate)].to_dict(),
+        }
+    ]
+    for key, (label, duty, gate) in fidelity.PRESETS.items():
+        sc = rows.get((duty, gate))
+        presets.append(
+            {
+                "id": key,
+                "label": label,
+                "duty": duty,
+                "gate": gate,
+                "scores": sc.to_dict() if sc else None,
+            }
+        )
+    return {
+        "auto": {"duty": auto.duty, "gate": auto.gate},
+        "presets": presets,
+        "measured_brightness": any(sc.brightness is not None for _, sc in table),
+    }
+
+
+def pick_style(info: dict, style: str) -> tuple[str, float, float]:
+    """(preset, duty, gate) do preset pedido; 'auto' usa o melhor da busca."""
+    for p in info["presets"]:
+        if p["id"] == style:
+            return style, p["duty"], p["gate"]
+    raise ValueError(f"estilo inválido: {style}")
+
+
+def restyle(result: Result, style: str) -> Result:
+    """Re-renderiza as notas atuais (editadas ou não) com outro preset de duty/gate."""
+    if style not in STYLE_CHOICES:
+        raise ValueError(f"estilo inválido: {style}")
+    key, duty, gate = pick_style(result.fidelity, style)
+    current = notes_mod.load(result.notes_file)["current"]
+    samples = render(
+        notes_mod.to_segments(current), result.min_hz, result.max_hz, PEAK_DB, duty, gate
+    )
+    write_mono_wav(result.wav, samples, RATE)
+    report = analyze(decode_mono(result.wav))
+    return replace(
+        result, duty=duty, gate=gate, style=key, peak_db=report.peak_db, clipped=report.clipped
     )
 
 
@@ -183,7 +259,14 @@ def apply_edit(result: Result, raw_notes: list[dict]) -> tuple[Result, list[note
     cleaned = notes_mod.validate(raw_notes, result.min_hz, result.max_hz)
     if not cleaned:
         raise ValueError("nenhuma nota: o resultado ficaria em silêncio")
-    samples = render(notes_mod.to_segments(cleaned), result.min_hz, result.max_hz, PEAK_DB)
+    samples = render(
+        notes_mod.to_segments(cleaned),
+        result.min_hz,
+        result.max_hz,
+        PEAK_DB,
+        result.duty,
+        result.gate,
+    )
     write_mono_wav(result.wav, samples, RATE)
     notes_mod.save(result.notes_file, result.min_hz, result.max_hz, saved["generated"], cleaned)
     report = analyze(decode_mono(result.wav))

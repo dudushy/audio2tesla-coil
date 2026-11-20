@@ -28,9 +28,10 @@ def run_ffmpeg(args: list[str]) -> bytes:
     return result.stdout
 
 
-def decode_mono(path: Path) -> np.ndarray:
-    """Decodifica qualquer formato para float32 mono (-1..1) na taxa original."""
-    data = run_ffmpeg(["-i", str(path), "-vn", "-ac", "1", "-f", "f32le", "-"])
+def decode_mono(path: Path, rate: int | None = None) -> np.ndarray:
+    """Decodifica qualquer formato para float32 mono (-1..1) na taxa original (ou em `rate` Hz)."""
+    resample = ["-ar", str(rate)] if rate else []
+    data = run_ffmpeg(["-i", str(path), "-vn", "-ac", "1", *resample, "-f", "f32le", "-"])
     return np.frombuffer(data, dtype="<f4")
 
 

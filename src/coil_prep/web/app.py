@@ -19,7 +19,7 @@ from ..calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from ..fetch import is_url
 from ..ffmpeg import wav_to_mp3
 from ..midi import MIDI_EXTS, RATE, render
-from ..pipeline import PEAK_DB, STEM_CHOICES, apply_edit
+from ..pipeline import PEAK_DB, STEM_CHOICES, STYLE_CHOICES, apply_edit, restyle
 from ..profile import Profile, load_profile, save_profile
 from .jobs import JobManager
 
@@ -44,6 +44,10 @@ class NoteIn(BaseModel):
 
 class NotesIn(BaseModel):
     notes: list[NoteIn]
+
+
+class StyleIn(BaseModel):
+    style: str
 
 
 class ProfileIn(BaseModel):
@@ -141,7 +145,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         with edit_lock:
             current = notes_mod.load(r.notes_file)["current"]
             segs = [(n.start / speed, n.end / speed, (n.pitch,)) for n in current]
-            write_mono_wav(out, render(segs, r.min_hz, r.max_hz, PEAK_DB), RATE)
+            write_mono_wav(out, render(segs, r.min_hz, r.max_hz, PEAK_DB, r.duty, r.gate), RATE)
         return out
 
     @app.get("/api/jobs/{job_id}/audio/{which}")
@@ -253,6 +257,18 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             generated = notes_mod.load(job.result.notes_file)["generated"]
         return notes_payload(job, generated, cleaned)
 
+    @app.put("/api/jobs/{job_id}/style")
+    def put_style(job_id: str, body: StyleIn):
+        job = jobs.get(job_id)
+        if job is None or job.result is None:
+            raise HTTPException(404, "job não encontrado ou ainda sem resultado")
+        if body.style not in STYLE_CHOICES:
+            raise HTTPException(422, f"estilo inválido: {body.style}")
+        with edit_lock:
+            job.result = restyle(job.result, body.style)
+        r = job.result
+        return {"style": r.style, "duty": r.duty, "gate": r.gate, "peak_db": round(r.peak_db, 1)}
+
     @app.post("/api/jobs/{job_id}/feedback")
     def job_feedback(job_id: str, body: FeedbackIn):
         job = jobs.get(job_id)
@@ -278,6 +294,9 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
                 "max_hz": r.max_hz,
                 "notes": r.notes,
                 "overlap": round(r.overlap, 3),
+                "style": r.style,
+                "duty": r.duty,
+                "gate": r.gate,
                 "rating": body.rating,
                 "tag": body.tag if body.rating == -1 else None,
             },
