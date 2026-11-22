@@ -143,7 +143,8 @@ def test_pipeline_folds_out_of_range_note_with_profile(tmp_path):
     mid = tmp_path / "low.mid"
     make_mid(mid, [(0, 36, 0, 2)])  # C2 = 65,4 Hz, abaixo da faixa
     x = decode_mono(run(mid, tmp_path, Profile(100, 800)).wav)
-    assert abs(dominant_hz(x[RATE // 10 : RATE]) - 130.8) < 3  # subiu uma oitava
+    # sobe em oitavas (continua dó) até a mais próxima do centro da faixa (283 Hz): C4
+    assert abs(dominant_hz(x[RATE // 10 : RATE]) - 261.6) < 3
 
 
 def test_pipeline_empty_midi_is_clear_error(tmp_path):

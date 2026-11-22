@@ -335,3 +335,27 @@ def test_style_presets_are_reported_and_switching_rerenders(client, tmp_path):
     assert client.get(f"/api/jobs/{job['id']}").json()["result"]["style"] == "bright"
     assert client.put(f"/api/jobs/{job['id']}/style", json={"style": "x"}).status_code == 422
     assert client.put("/api/jobs/nope/style", json={"style": "classic"}).status_code == 404
+
+
+def test_midi_download_and_excerpt_via_api(client, tmp_path):
+    """Trecho (início/fim) e exportação do .mid das notas atuais."""
+    path = tmp_path / "long.mid"
+    make_mid(path, [(0, n, i, 1) for i, n in enumerate([60, 62, 64, 65, 67, 69])])  # 0,5 s cada
+    r = client.post(
+        "/api/jobs",
+        data={"stem": "mix", "start": "1", "end": "2"},
+        files={"file": ("long.mid", path.read_bytes(), "audio/midi")},
+    )
+    job = wait_done(client, r.json()["id"])
+    assert job["status"] == "done", job
+    assert job["result"]["segments"] == 2  # só as notas entre 1 s e 2 s
+    mid = client.get(f"/api/jobs/{job['id']}/midi")
+    assert mid.status_code == 200 and mid.content[:4] == b"MThd"
+    assert "attachment" in mid.headers["content-disposition"]
+    assert client.get("/api/jobs/nope/midi").status_code == 404
+    bad = client.post(
+        "/api/jobs",
+        data={"stem": "mix", "start": "5", "end": "2"},
+        files={"file": ("long.mid", path.read_bytes(), "audio/midi")},
+    )
+    assert bad.status_code == 422

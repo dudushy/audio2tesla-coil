@@ -7,8 +7,9 @@ Web app (runs in Docker) that turns a song (YouTube link or file) into its **mel
 The coil plays **one note at a time** as a low-fidelity square wave, so the app does not "clean" the mix: it extracts the **melody** only and renders it as a square wave inside the frequency range the coil plays well.
 
 ```
-link or file → (Demucs: isolate a stem) → notes (Basic Pitch or .mid) → 1 voice at a time
-→ octave chosen by contour inside the coil range → square wave (peak -8 dBFS) → WAV
+link or file → (excerpt start/end) → (Demucs: isolate a stem) → notes (Basic Pitch or .mid) → 1 voice at a time
+→ audio: rhythm snapped to the song's tempo grid → whole song shifted by octaves to the middle of the range
+→ octave chosen by contour inside the coil range → 50% square wave (peak -8 dBFS) → WAV + MIDI
 ```
 
 ## Usage
@@ -37,6 +38,7 @@ Open **http://localhost:8000** in the browser of the laptop connected to the coi
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e ".[dev]"      # + ".[midi,separate]" for audio input and Demucs
 ruff check . && pytest
+python -m coil_prep.evaluate expected.mp3 generated.wav   # playability gate + note F1 vs an expected square-wave render
 COIL_DATA=./data uvicorn coil_prep.web.app:create_default_app --factory --reload
 ```
 

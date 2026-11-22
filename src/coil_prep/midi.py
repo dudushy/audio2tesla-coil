@@ -1,16 +1,17 @@
 """Modo melodia: notas (de .mid ou de áudio) -> 1 voz -> faixa da bobina -> onda quadrada."""
 
+import math
 import os
 import re
 import tempfile
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 
-from .ffmpeg import run_ffmpeg
+from .ffmpeg import decode_mono, run_ffmpeg
 
 RATE = 44100
 MIDI_EXTS = {".mid", ".midi"}
@@ -375,20 +376,165 @@ def merge_same_pitch(segments: list[tuple], merge_gap: float) -> list[tuple]:
     return out
 
 
-def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: int = 24) -> int:
-    """Semitons (múltiplo de 12) para transpor a música INTEIRA e caber o máximo de tempo na faixa.
+LOW_STRAY = 15  # semitons abaixo da mediana da melodia: é o baixo vazando, não a melodia
 
-    Só oitavas: preserva todas as classes de altura (a tonalidade). Deslocar por semitons (versão
-    antiga) cabia só um pouco mais de tempo na faixa, mas a música saía em outro tom; o que sobra
-    fora da faixa é dobrado depois por `contour_fold`, que também mantém a classe de altura.
-    Desempate: menor |deslocamento| (0 se a música já cabe).
+
+def lead_line(notes: list[Note], min_note: float = 0.06, gap: float = 0.02) -> list[tuple]:
+    """`melody_line` em duas passadas, para notas transcritas de áudio.
+
+    Quando a melodia cala (ou o baixo está forte), a 1ª passada pega notas do baixo, 2+ oitavas
+    abaixo, e a bobina salta para o grave. A 2ª passada refaz a escolha sem as notas mais de
+    `LOW_STRAY` semitons abaixo da mediana (ponderada pelo tempo) do que a 1ª escolheu.
     """
+    segments = melody_line(notes, min_note, gap)
+    if not segments:
+        return segments
+    floor = _weighted_pitch(segments, 0.5) - LOW_STRAY
+    kept = [n for n in notes if n.pitch >= floor]
+    return melody_line(kept, min_note, gap) if len(kept) < len(notes) else segments
+
+
+def _weighted_pitch(segments: list[tuple], q: float) -> int:
+    """Altura no quantil `q` (0..1) do tempo de som: 0.5 = mediana ponderada pela duração."""
+    by_pitch = sorted((p[0], b - a) for a, b, p in segments)
+    target, acc = q * sum(d for _, d in by_pitch), 0.0
+    for pitch, dur in by_pitch:
+        acc += dur
+        if acc >= target:
+            return pitch
+    return by_pitch[-1][0]
+
+
+MIN_STEP = (
+    0.14  # s; passo mínimo da grade: nota mais curta que a bobina articula bem (Mario ~140 ms)
+)
+GRID_FILL = 0.4  # fração da célula com melodia para ela virar nota
+GRID_SEARCH = 0.04  # ± fração do passo em que o tempo do rastreador é refinado
+GRID_GATE = 0.68  # fração da célula que soa; o resto é a pausa que rearticula a nota seguinte
+
+
+def beat_period(path: Path) -> float | None:
+    """Duração da batida (s) do áudio, pelo rastreador do librosa (dependência do Basic Pitch).
+
+    Só o nível métrico importa aqui (o valor exato é refinado em `tempo_grid`). None se o librosa
+    não está instalado ou não achou batida.
+    """
+    try:
+        import librosa
+    except ImportError:
+        return None
+    tempo, _ = librosa.beat.beat_track(y=decode_mono(path, 22050), sr=22050)
+    bpm = float(np.atleast_1d(tempo)[0])
+    return 60.0 / bpm if bpm > 0 else None
+
+
+def tempo_grid(notes: list[Note], beat: float) -> tuple[float, float] | None:
+    """(passo, fase) em s da grade rítmica das notas transcritas, ou None se não há pulso firme.
+
+    O passo é a subdivisão binária de `beat` que cai em [MIN_STEP, 2*MIN_STEP): colcheia a
+    126 BPM (238 ms), semicolcheia a 100 BPM (150 ms). `beat` vem de um rastreador de batidas e
+    tem erro de até ~3% (ele mede em quadros de 23 ms), o que em 1 min de música vira várias notas
+    de atraso; por isso o passo é refinado (±`GRID_SEARCH`) e a fase escolhida pelos inícios das
+    próprias notas: o melhor passo é o que
+    mais concentra os inícios (peso = amplitude) num ponto do ciclo, somando o nível acima (2x).
+    Música sem tempo constante espalha os inícios pelo ciclo e devolve None (fica como transcrita).
+    """
+    if len(notes) < 16 or not beat or beat <= 0:
+        return None
+    step = beat
+    while step < MIN_STEP:
+        step *= 2
+    while step >= 2 * MIN_STEP:
+        step /= 2
+    onsets = np.array([n.start for n in notes])
+    weights = np.array([n.amp for n in notes])
+    span = max(float(onsets.max() - onsets.min()), 1.0)
+    cands, s = [], step * (1 - GRID_SEARCH)
+    while s < step * (1 + GRID_SEARCH):
+        cands.append(s)
+        s += 0.1 * s * s / span  # passo fino: no máximo 1/10 de ciclo de deriva no fim da música
+    cands = np.array(cands)
+
+    def concentration(steps: np.ndarray) -> np.ndarray:
+        phases = np.exp(2j * np.pi * onsets[None, :] / steps[:, None])
+        return (weights[None, :] * phases).sum(axis=1) / weights.sum()
+
+    z = concentration(cands)
+    best = int(np.argmax(np.abs(z) + np.abs(concentration(2 * cands))))
+    if abs(z[best]) < 4 / math.sqrt(len(notes)):  # ~4 desvios acima de inícios ao acaso
+        return None
+    step = float(cands[best])
+    return step, float(np.angle(z[best]) / (2 * np.pi) * step) % step
+
+
+def to_grid(segments: list[tuple], step: float, phase: float) -> list[tuple]:
+    """Encaixa a melodia (1 voz) na grade: uma nota por célula, no início da célula.
+
+    A transcrição de áudio erra o início das notas em dezenas de ms e quebra/junta notas ao acaso;
+    numa onda quadrada isso soa como ritmo torto. Aqui cada célula [fase + k*passo, +passo) com
+    melodia em pelo menos `GRID_FILL` dela vira uma nota com a altura que mais soa na célula,
+    durando `GRID_GATE` da célula. Também vira nota a célula em cujo ponto de grade mais próximo
+    começa uma nota (mesmo curta, >= 60 ms): o Basic Pitch encurta notas rápidas e uma nota com
+    ataque claro não pode sumir só por soar pouco. Nota longa vira notas repetidas (o arco
+    rearticula a cada célula), fragmento sem ataque na célula some, e todo início cai na grade.
+    """
+    if not segments:
+        return []
+    out = []
+    starts = [s for s, _, _ in segments]
+    k = math.floor((segments[0][0] - phase) / step)
+    end = segments[-1][1]
+    i = 0
+    while phase + k * step < end:
+        a = phase + k * step
+        b = a + step
+        while i < len(segments) and segments[i][1] <= a:
+            i += 1
+        sounding: dict[int, float] = {}
+        for s, e, p in segments[i:]:
+            if s >= b:
+                break
+            sounding[p[0]] = sounding.get(p[0], 0.0) + min(e, b) - max(s, a)
+        # ataque perto deste ponto da grade (mais perto dele que dos vizinhos)
+        lo, hi = bisect_left(starts, a - step / 2), bisect_left(starts, a + step / 2)
+        struck = [p[0] for s, e, p in segments[lo:hi] if e - s >= 0.06]
+        start = max(a, 0.0)
+        if sounding and (sum(sounding.values()) >= GRID_FILL * step or struck):
+            pitch = max(sounding, key=lambda p: (sounding[p], p))
+            out.append((start, a + GRID_GATE * step, (pitch,)))
+        elif struck:  # nota curta que começa logo antes do ponto e termina antes dele
+            out.append((start, a + GRID_GATE * step, (struck[-1],)))
+        k += 1
+    return [seg for seg in out if seg[1] - seg[0] >= 0.02]
+
+
+SHIFT_SLACK = 0.02  # deslocamentos que cabem quase o mesmo tempo (2%) contam como empate
+
+
+def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: int = 24) -> int:
+    """Semitons (múltiplo de 12) para transpor a música INTEIRA para a faixa da bobina.
+
+    Só oitavas: preserva todas as classes de altura (a tonalidade). 1º critério: caber o máximo de
+    tempo na faixa (o que sobra fora é dobrado depois por `contour_fold`). Entre os deslocamentos
+    que cabem (quase) o mesmo, ganha o que deixa a tessitura da melodia (meio entre os quantis
+    5% e 95% do tempo) mais perto do centro geométrico da faixa: a bobina soa mais clara no meio
+    do que nas bordas, e uma melodia em 400-930 Hz que cabe inteira em 200-465 Hz desce uma oitava.
+    Desempate final: menor |deslocamento|.
+    """
+    if not segments:
+        return 0
 
     def in_range(shift: int) -> float:
         return sum(b - a for a, b, (p,) in segments if min_hz <= midi_to_hz(p + shift) <= max_hz)
 
     reach = max_shift // 12 * 12
-    return max(range(-reach, reach + 1, 12), key=lambda s: (round(in_range(s), 3), -abs(s)))
+    shifts = range(-reach, reach + 1, 12)
+    fits = {s: in_range(s) for s in shifts}
+    total = sum(b - a for a, b, _ in segments)
+    good = [s for s in shifts if fits[s] >= max(fits.values()) - SHIFT_SLACK * total]
+    middle = (_weighted_pitch(segments, 0.05) + _weighted_pitch(segments, 0.95)) / 2
+    center = 69 + 12 * math.log2(math.sqrt(min_hz * max_hz) / 440)
+    return min(good, key=lambda s: (round(abs(middle + s - center), 3), abs(s)))
 
 
 def transpose(segments: list[tuple], shift: int) -> list[tuple]:
@@ -523,3 +669,49 @@ def notes_from(path: Path, min_note_ms: float = 80.0, part: int | None = None) -
     if path.suffix.lower() in MIDI_EXTS:
         return select_part(read_midi_parts(path), part).notes
     return transcribe_audio(path, min_note_ms)
+
+
+def clip_notes(notes: list[Note], start: float, end: float | None) -> list[Note]:
+    """Só o trecho [start, end) s das notas, com o tempo recontado a partir de `start`."""
+    stop = math.inf if end is None else end
+    out = []
+    for n in notes:
+        a, b = max(n.start, start), min(n.end, stop)
+        if b - a >= 0.02:
+            out.append(Note(a - start, b - start, n.pitch, n.amp, n.part))
+    return out
+
+
+MIDI_PPQ = 480
+SQUARE_LEAD = 80  # programa General MIDI "Lead 1 (square)"
+
+
+def write_midi(path: Path, segments: list[tuple], bpm: float | None = None) -> None:
+    """Grava a melodia (1 voz) como .mid: 1 trilha, canal 1, sem pitch bend, tempo fixo `bpm`.
+
+    Os tempos em segundos são preservados: `bpm` (padrão 120) só define como o editor que abrir o
+    arquivo desenha os compassos.
+    """
+    import mido
+
+    bpm = bpm or 120.0
+    ticks = lambda sec: round(sec * MIDI_PPQ * bpm / 60)
+    events = []
+    for a, b, p in segments:
+        on, off = ticks(a), max(ticks(b), ticks(a) + 1)
+        events += [(on, 1, "note_on", p[0]), (off, 0, "note_off", p[0])]
+    track = mido.MidiTrack()
+    track.append(mido.MetaMessage("track_name", name="Coil melody", time=0))
+    track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(bpm), time=0))
+    track.append(mido.Message("program_change", program=SQUARE_LEAD, time=0))
+    now = 0
+    for tick, _, kind, pitch in sorted(events):  # note_off antes de note_on no mesmo tick
+        track.append(
+            mido.Message(
+                kind, note=pitch, velocity=100 if kind == "note_on" else 0, time=tick - now
+            )
+        )
+        now = tick
+    mid = mido.MidiFile(type=0, ticks_per_beat=MIDI_PPQ)
+    mid.tracks.append(track)
+    mid.save(str(path))

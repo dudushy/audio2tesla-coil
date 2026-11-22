@@ -106,10 +106,14 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         stem: str = Form("other"),
         url: str = Form(""),
         part: int | None = Form(None),  # .mid: trilha escolhida (-1 = todas); vazio = automático
+        start: float = Form(0.0),  # trecho da música, em segundos; sem `end` = até o fim
+        end: float | None = Form(None),
         file: UploadFile | None = File(None),  # noqa: B008
     ):
         if stem not in STEM_CHOICES:
             raise HTTPException(422, f"stem inválido: {stem}")
+        if start < 0 or (end is not None and end - start < 1):
+            raise HTTPException(422, "trecho inválido: o fim precisa ser depois do início")
         url = url.strip()
         if bool(url) == (file is not None and bool(file.filename)):
             raise HTTPException(422, "envie um link OU um arquivo")
@@ -129,7 +133,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
             source = str(dest)
-        return jobs.submit(source, stem, part).to_dict()
+        return jobs.submit(source, stem, part, start, end).to_dict()
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job_id: str):
@@ -178,6 +182,16 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         if download and which == "result":
             record_edit(job)
         return FileResponse(path, filename=path.name if download else None)
+
+    @app.get("/api/jobs/{job_id}/midi")
+    def job_midi(job_id: str):
+        """.mid das notas atuais (1 voz, já na faixa da bobina): regravado a cada edição."""
+        job = jobs.get(job_id)
+        if job is None or job.result is None or not job.result.midi.is_file():
+            raise HTTPException(404, "MIDI indisponível")
+        record_edit(job)
+        midi = job.result.midi
+        return FileResponse(midi, media_type="audio/midi", filename=midi.name)
 
     def record_edit(job) -> bool:
         """Registra no feedback o diff gerado x final (uma vez por estado das notas)."""

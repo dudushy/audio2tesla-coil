@@ -1,5 +1,6 @@
 """Fluxo único: URL ou arquivo -> (stem) -> melodia -> onda quadrada -> WAV para a bobina."""
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -9,18 +10,20 @@ from . import notes as notes_mod
 from .analysis import analyze
 from .calibrate import write_mono_wav
 from .fetch import fetch, is_url
-from .ffmpeg import decode_mono
+from .ffmpeg import decode_mono, trim_audio
 from .midi import (
     ALL_PARTS,
     MIDI_EXTS,
     RATE,
+    beat_period,
     best_shift,
+    clip_notes,
     combine_parts,
     contour_fold,
     coverage,
     drop_ghost_notes,
+    lead_line,
     median_note_ms,
-    melody_line,
     notes_from,
     out_of_range_fraction,
     overlap_fraction,
@@ -28,7 +31,10 @@ from .midi import (
     render,
     select_part,
     skyline,
+    tempo_grid,
+    to_grid,
     transpose,
+    write_midi,
 )
 from .profile import Profile
 from .separate import separate
@@ -37,6 +43,7 @@ STEM_CHOICES = ("other", "vocals", "mix")  # "mix" = sem separação
 STYLE_CHOICES = ("auto", *fidelity.PRESETS)  # "auto" = melhor score da busca duty x gate
 PEAK_DB = -8.0  # nível que a bobina tocou bem (referência Mario)
 FALLBACK_RANGE = (100.0, 800.0)
+TRIM_PAD = 1.0  # s de áudio além do trecho pedido, de cada lado, para separar e transcrever
 OVERLAP_WARN = 0.3  # acima disso a transcrição é muito polifônica para uma bobina
 MAX_PEAK = -3.0
 OUT_OF_RANGE_WARN = 0.2  # mesmo após transpor, muita nota fora da faixa vira salto de oitava
@@ -69,6 +76,14 @@ class Result:
     gate: float = 1.0  # fração de cada nota que soa (1.0 = legato)
     style: str = "classic"  # preset escolhido (STYLE_CHOICES)
     fidelity: dict = field(default_factory=dict)  # ver `fidelity_info`
+    bpm: float | None = (
+        None  # áudio com pulso firme: tempo da grade em que as notas foram encaixadas
+    )
+
+    @property
+    def midi(self) -> Path:
+        """.mid das notas atuais (regravado a cada edição), ao lado do WAV."""
+        return self.wav.with_suffix(".mid")
 
     @property
     def ok(self) -> bool:
@@ -82,17 +97,24 @@ def process(
     stem: str = "other",
     progress: Progress = lambda _msg: None,
     part: int | None = None,
-    style: str = "auto",
+    style: str = "classic",
+    start: float = 0.0,
+    end: float | None = None,
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
     `part` (só .mid): id da trilha (trilha*16+canal); -1 = todas; None = combina automaticamente
     as trilhas que parecem melodia (a melhor manda, as outras preenchem as pausas dela).
+    `start`/`end` (s): processa só esse trecho da música (o tempo da saída começa em `start`).
+    `style`: o padrão é a quadrada de 50% que a bobina já tocou bem; "auto" usa a busca de estilo.
     """
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
     if style not in STYLE_CHOICES:
         raise ValueError(f"estilo inválido: {style}")
+    if start < 0 or (end is not None and end - start < 1):
+        raise ValueError("trecho inválido: o fim precisa ser pelo menos 1 s depois do início")
+    trimmed = start > 0 or end is not None
     min_hz, max_hz = (profile.min_hz, profile.max_hz) if profile else FALLBACK_RANGE
 
     if is_url(source):
@@ -103,16 +125,28 @@ def process(
         if not original.is_file():
             raise ValueError(f"arquivo não encontrado: {original}")
     is_midi = original.suffix.lower() in MIDI_EXTS
+    source_audio, pre = original, 0.0  # áudio que é separado/transcrito; margem antes do trecho
+    if trimmed and not is_midi:  # corta antes de separar: o Demucs só roda no trecho
+        progress("Cortando o trecho...")
+        # com margem: o Demucs e o Basic Pitch perdem notas no último ~0,5 s de um arquivo
+        pre = min(TRIM_PAD, start)
+        stop = None if end is None else end + TRIM_PAD
+        source_audio = trim_audio(original, start - pre, stop, workdir / "input")
+        original = trim_audio(original, start, end, workdir / "input")  # o que o usuário ouve
 
-    origin = original
+    origin = source_audio
     if stem != "mix" and not is_midi:
         progress(f"Isolando '{stem}' com Demucs (CPU, pode levar minutos na 1ª vez)...")
-        origin = separate(original, stem, workdir / "separated")
+        origin = separate(source_audio, stem, workdir / "separated")
 
     progress("Extraindo a melodia...")
-    parts_info, chosen_part = (), None
+    parts_info, chosen_part, bpm = (), None, None
     if is_midi:
         parts = read_midi_parts(origin)
+        if trimmed:
+            for p in parts:
+                p.notes = clip_notes(p.notes, start, end)
+            parts = [p for p in parts if p.notes]
         if part is None:  # automático: melodia combinada de várias trilhas
             notes, used = combine_parts(parts)
         else:
@@ -131,16 +165,28 @@ def process(
             }
             for p in parts
         )
+        # .mid tem notas limpas e a voz mais aguda é a melodia (baixo/raiz sustentado fica
+        # abaixo); a pontuação por amplitude serve para notas transcritas de áudio, não para
+        # velocity de MIDI (raízes de violão, longas e fortes, ganhavam do riff: 29% do tempo no Blue)
+        segments = skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
     else:
         notes = notes_from(origin)
-    # .mid tem notas limpas e a voz mais aguda é a melodia (baixo/raiz sustentado fica abaixo);
-    # a pontuação por amplitude do melody_line serve para notas transcritas de áudio, não para
-    # velocity de MIDI (raízes de violão, longas e fortes, ganhavam do riff: 29% do tempo no Blue)
-    segments = (
-        skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
-        if is_midi
-        else melody_line(notes, 0.06, 0.02, 0.02)
-    )
+        segments = lead_line(notes)
+        # transcrição de áudio: o ritmo sai torto (início das notas ±50 ms, notas quebradas ao
+        # acaso); se a música tem pulso firme, as notas são encaixadas na grade dele
+        grid = tempo_grid(notes, beat_period(source_audio)) if segments else None
+        if grid:
+            segments = to_grid(segments, *grid)
+            bpm = 60.0 / grid[0]
+            while bpm >= 180:  # a grade é uma subdivisão da batida; BPM plausível para o .mid
+                bpm /= 2
+        if pre or end is not None:  # tira a margem: o tempo volta a contar do início do trecho
+            stop = math.inf if end is None else end - start
+            segments = [
+                (max(a - pre, 0.0), min(b - pre, stop), p)
+                for a, b, p in segments
+                if min(b - pre, stop) - max(a - pre, 0.0) >= 0.03
+            ]
     if not segments:
         raise ValueError("nenhuma nota detectada; tente outro som (stem) ou outro arquivo")
     shift = best_shift(segments, min_hz, max_hz)
@@ -152,13 +198,17 @@ def process(
 
     progress("Gerando a onda quadrada...")
     suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
+    if trimmed and is_midi:  # no áudio o trecho já está no nome do arquivo cortado
+        suffix += f".{start:g}-{'fim' if end is None else format(end, 'g')}"
     out = workdir / "output" / f"{original.stem}.{stem}{suffix}.wav"  # um arquivo por stem/trilha
     out.parent.mkdir(parents=True, exist_ok=True)
     progress("Medindo a fidelidade ao original...")
     ref = (
         fidelity.reference_from_notes(skyline(notes, 1, 0.06, 0.0))
         if is_midi
-        else fidelity.reference_from_audio(decode_mono(origin, RATE), min_hz, max_hz)
+        else fidelity.reference_from_audio(
+            decode_mono(origin, RATE)[int(pre * RATE) :], min_hz, max_hz
+        )
     )
     chosen, table = fidelity.search(ref, segments, min_hz, max_hz)
     info = fidelity_info(table, chosen)
@@ -167,6 +217,7 @@ def process(
     editable = notes_mod.from_segments(segments)
     notes_file = out.with_suffix(".notes.json")
     notes_mod.save(notes_file, min_hz, max_hz, editable, editable)
+    write_midi(out.with_suffix(".mid"), segments, bpm)
     report = analyze(decode_mono(out))
     return Result(
         wav=out,
@@ -190,6 +241,7 @@ def process(
         gate=gate,
         style=key,
         fidelity=info,
+        bpm=bpm,
     )
 
 
@@ -269,6 +321,7 @@ def apply_edit(result: Result, raw_notes: list[dict]) -> tuple[Result, list[note
     )
     write_mono_wav(result.wav, samples, RATE)
     notes_mod.save(result.notes_file, result.min_hz, result.max_hz, saved["generated"], cleaned)
+    write_midi(result.midi, notes_mod.to_segments(cleaned), result.bpm)
     report = analyze(decode_mono(result.wav))
     updated = replace(result, segments=len(cleaned), peak_db=report.peak_db, clipped=report.clipped)
     return updated, cleaned
