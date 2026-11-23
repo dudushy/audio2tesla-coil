@@ -64,6 +64,7 @@ class Job:
                 "duty": r.duty,
                 "gate": r.gate,
                 "fidelity": r.fidelity,
+                "bpm": round(r.bpm, 1) if r.bpm else None,
             }
         return data
 
@@ -76,29 +77,46 @@ class JobManager:
         self._jobs: OrderedDict[str, Job] = OrderedDict()
         self._lock = threading.Lock()
 
-    def submit(self, source: str, stem: str, part: int | None = None) -> Job:
+    def submit(
+        self,
+        source: str,
+        stem: str,
+        part: int | None = None,
+        start: float = 0.0,
+        end: float | None = None,
+    ) -> Job:
         label = source if is_url(source) else Path(source).name
         job = Job(id=uuid.uuid4().hex, source=label)
         with self._lock:
             self._jobs[job.id] = job
             while len(self._jobs) > MAX_JOBS:
                 self._jobs.popitem(last=False)
-        self._pool.submit(self._run, job, source, stem, part)
+        self._pool.submit(self._run, job, source, stem, part, start, end)
         return job
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def _run(self, job: Job, source: str, stem: str, part: int | None) -> None:
+    def _run(
+        self,
+        job: Job,
+        source: str,
+        stem: str,
+        part: int | None,
+        start: float = 0.0,
+        end: float | None = None,
+    ) -> None:
         job.status = "running"
         try:
             try:
                 profile = load_profile(self.data_dir / "device.json")
             except ValueError:
                 profile = None  # sem calibragem: faixa padrão
-            # process_fn de teste pode não ter o argumento `part`
+            # process_fn de teste pode não ter os argumentos opcionais
             extra = {} if part is None else {"part": part}
+            if start > 0 or end is not None:
+                extra |= {"start": start, "end": end}
             job.result = self.process_fn(
                 source,
                 self.data_dir,

@@ -39,3 +39,14 @@ def wav_to_mp3(src: Path, dst: Path) -> None:
     """MP3 VBR ~190 kbps (-q:a 2). Codec com perdas pode arredondar um pouco as quinas da quadrada."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     run_ffmpeg(["-y", "-i", str(src), "-vn", "-c:a", "libmp3lame", "-q:a", "2", str(dst)])
+
+
+def trim_audio(src: Path, start: float, end: float | None, out_dir: Path) -> Path:
+    """Corta [start, end) s de `src` para um WAV em `out_dir` (reaproveitado se já existir)."""
+    name = f"{src.stem}.{start:g}-{'fim' if end is None else format(end, 'g')}.wav"
+    dst = out_dir / name
+    if not dst.exists():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stop = [] if end is None else ["-to", f"{end:g}"]
+        run_ffmpeg(["-y", "-ss", f"{start:g}", *stop, "-i", str(src), "-vn", str(dst)])
+    return dst

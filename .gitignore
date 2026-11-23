@@ -6,6 +6,10 @@
 *.m4a
 *.mid
 *.midi
+*.opus
+*.webm
+*:Zone.Identifier
+2compare/
 # Saída do Demucs e saídas locais
 separated/
 out/

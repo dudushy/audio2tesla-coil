@@ -18,7 +18,7 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
   label { display:block; font-weight:600; margin:12px 0 4px; }
   label:first-child { margin-top:0; }
-  input[type=url], input[type=file], select { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  input[type=url], input[type=text], input[type=file], select { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
   .tabs { display:flex; gap:8px; margin-bottom:12px; }
   .tabs button { flex:1; }
   button { min-height:44px; padding:8px 14px; font:inherit; font-weight:600; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
@@ -91,6 +91,11 @@
       <option value="mix">mix completo (sem separar)</option>
     </select>
     <p id="hint" class="muted hidden" style="margin:6px 0 0"></p>
+    <label for="t-start">Trecho da música (opcional)</label>
+    <div class="row">
+      <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
+      <input id="t-end" type="text" inputmode="decimal" placeholder="fim (ex.: 1:45)" autocomplete="off" aria-label="Fim do trecho">
+    </div>
     <button class="primary" id="go" type="submit">Gerar</button>
     <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos.</p>
   </form>
@@ -173,7 +178,7 @@
     </div>
     <p id="summary" class="muted"></p>
     <p id="warnings" class="warn"></p>
-    <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a>
+    <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a> · <a id="download-mid" class="dl">Baixar MIDI</a>
     <div id="rate" style="margin-top:16px">
       <label>Como soou na bobina?</label>
       <div class="row">
@@ -389,7 +394,8 @@ function showResult(job) {
   setDownloadLink();
   $("download").setAttribute("download", r.filename);
   $("download-mp3").href = base + "result?format=mp3&download=true";
-  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}`;
+  $("download-mid").href = `/api/jobs/${job.id}/midi`;
+  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}${r.bpm ? ` | ritmo na grade de ${r.bpm} BPM` : ""}`;
   const w = [];
   if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
   if (r.range_warning) w.push(`${Math.round(r.out_of_range * 100)}% do tempo ficou fora da faixa mesmo após transpor; essas notas foram dobradas de oitava e podem soar com saltos.`);
@@ -431,9 +437,21 @@ function finish() { clearTimeout(timer); $("go").disabled = false; }
 
 let lastSource = null;  // {url} ou {file}: reenviado ao trocar a trilha do MIDI
 
+// "1:30" ou "90" -> segundos; vazio -> null; inválido -> NaN
+function parseTime(text) {
+  const t = text.trim().replace(",", ".");
+  if (!t) return null;
+  const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(t);
+  return m ? (+(m[1] || 0)) * 60 + +m[2] : NaN;
+}
+
 async function submitJob(part) {
   const fd = new FormData();
   fd.append("stem", $("stem").value);
+  const t0 = parseTime($("t-start").value), t1 = parseTime($("t-end").value);
+  if (Number.isNaN(t0) || Number.isNaN(t1)) { showStatus("Trecho inválido: use segundos (90) ou min:seg (1:30).", true); return; }
+  if (t0 !== null) fd.append("start", t0);
+  if (t1 !== null) fd.append("end", t1);
   if (part !== undefined) fd.append("part", part);
   if (lastSource.url !== undefined) fd.append("url", lastSource.url);
   else if (lastSource.file) fd.append("file", lastSource.file);

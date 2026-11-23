@@ -21,7 +21,8 @@ midi-onnx = [
   "onnxruntime", "librosa>=0.8", "resampy<0.4.3,>=0.2.2", "mir_eval>=0.6", "pretty_midi>=0.2.9",
   "scipy>=1.4.1", "scikit-learn", "typing-extensions", "setuptools<81",
 ]
-dev = ["pytest", "ruff", "httpx"]
+# mir_eval: métrica nota a nota de coil_prep.evaluate (sem ele esses testes são pulados)
+dev = ["pytest", "ruff", "httpx", "mir_eval"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
