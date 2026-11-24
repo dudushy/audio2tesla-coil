@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teclado · coil-prep</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="kbpage">
+<main id="kb-box" data-full>
+  <h1>Teclado</h1>
+  <p class="sub">Onda quadrada direto no navegador, no mesmo nível do WAV gerado. Comece com o <strong>volume baixo</strong>.</p>
+  <div class="toolbar">
+    <button type="button" id="kb-down" aria-label="Oitava abaixo">◀ Oitava</button>
+    <strong id="kb-oct" aria-live="polite"></strong>
+    <button type="button" id="kb-up" aria-label="Oitava acima">Oitava ▶</button>
+    <button type="button" id="kb-full" class="hidden" aria-label="Tela cheia">⛶ Tela cheia</button>
+    <span id="kb-range" class="muted"></span>
+  </div>
+  <p id="kb-info" class="kbinfo" aria-live="polite"></p>
+  <div class="kb" tabindex="0" role="group" aria-label="Teclado de piano (C2 a B6)"></div>
+  <details class="help kbhelp">
+    <summary>Como usar</summary>
+    <p class="muted">1 nota por vez, como a bobina; arraste o dedo/mouse para deslizar entre as teclas. O teclado se adapta à largura da tela (de 1 a 5 oitavas); no celular, deite o aparelho para ver mais teclas. Teclado do computador: A W S E D F T G Y H U J K O L tocam as notas da oitava mostrada e Z/X trocam a oitava. Teclas esmaecidas ficam fora da faixa calibrada (tocam mesmo assim).</p>
+  </details>
+</main>
+<script src="/static/common.js"></script>
+<script src="/static/piano.js"></script>
+<script>
+loadState().then((st) => {
+  LiveKeyboard.configure({ peakDb: st && st.peak_db, minHz: st && st.profile && st.profile.min_hz, maxHz: st && st.profile && st.profile.max_hz });
+  $("kb-range").textContent = st && st.profile ? `Faixa calibrada: ${st.profile.min_hz}–${st.profile.max_hz} Hz` : "Sem calibragem: nenhuma tecla é marcada como fora da faixa";
+});
+if (document.documentElement.requestFullscreen) {
+  $("kb-full").classList.remove("hidden");
+  $("kb-full").onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  };
+}
+</script>
+</body>
+</html>

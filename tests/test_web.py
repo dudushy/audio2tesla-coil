@@ -225,7 +225,7 @@ def test_export_mp3_and_invalid_format(client, tmp_path):
 def test_editor_static_assets_are_served(client):
     r = client.get("/static/editor.js")
     assert r.status_code == 200 and "PianoRoll" in r.text
-    assert "/static/editor.js" in client.get("/").text
+    assert "/static/editor.js" in client.get("/faixa/x").text
 
 
 def read_feedback(tmp_path):
@@ -359,3 +359,60 @@ def test_midi_download_and_excerpt_via_api(client, tmp_path):
         files={"file": ("long.mid", path.read_bytes(), "audio/midi")},
     )
     assert bad.status_code == 422
+
+
+def test_pages_are_served(client):
+    for path in ("/", "/faixa/qualquer", "/teclado", "/calibrar"):
+        r = client.get(path)
+        assert r.status_code == 200 and "coil-prep" in r.text, path
+    assert "data-full" in client.get("/teclado").text
+    assert client.get("/static/common.js").status_code == 200
+
+
+def test_batch_of_midi_generates_auto_and_all_tracks(client, tmp_path):
+    r = client.post("/api/batches", files={"file": ("a.mid", midi_bytes(tmp_path))})
+    assert r.status_code == 200
+    batch = r.json()
+    assert [j["variant"] for j in batch["jobs"]] == ["trilhas automáticas", "todas as trilhas"]
+    for j in batch["jobs"]:
+        assert wait_done(client, j["id"])["status"] == "done"
+    status = client.get(f"/api/batches/{batch['id']}").json()
+    assert len(status["jobs"]) == 2 and all(j["batch"] == batch["id"] for j in status["jobs"])
+    assert status["source"].startswith("a-") and status["source"].endswith(".mid")
+
+
+def test_batch_of_audio_has_one_job_per_stem(tmp_path):
+    seen = []
+
+    def fake(source, data_dir, profile, stem, progress=None, **kw):
+        seen.append(stem)
+        raise ValueError("sem áudio de verdade")
+
+    from coil_prep.web.jobs import JobManager
+
+    c = TestClient(create_app(tmp_path / "data", JobManager(tmp_path / "data", fake)))
+    r = c.post("/api/batches", data={"url": "https://a/b", "stems": "mix,other,mix"})
+    assert [j["variant"] for j in r.json()["jobs"]] == ["mix", "other"]
+    for j in r.json()["jobs"]:
+        wait_done(c, j["id"])
+    assert sorted(seen) == ["mix", "other"]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{}, {"url": "https://a/b", "stems": "bass"}, {"url": "https://a/b", "stems": ","}],
+)
+def test_invalid_batch_is_rejected(client, data):
+    assert client.post("/api/batches", data=data).status_code == 422
+    assert client.get("/api/batches/naoexiste").status_code == 404
+
+
+def test_redo_with_other_part_joins_the_batch(client, tmp_path):
+    batch = client.post("/api/batches", files={"file": ("a.mid", midi_bytes(tmp_path))}).json()
+    first = batch["jobs"][0]
+    wait_done(client, first["id"])
+    r = client.post(f"/api/jobs/{first['id']}/part", json={"part": -1})
+    assert r.status_code == 200 and r.json()["batch"] == batch["id"]
+    assert wait_done(client, r.json()["id"])["status"] == "done"
+    assert len(client.get(f"/api/batches/{batch['id']}").json()["jobs"]) == 3
+    assert client.post("/api/jobs/x/part", json={"part": None}).status_code == 404

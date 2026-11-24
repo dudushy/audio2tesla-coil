@@ -33,10 +33,25 @@ class Job:
     source: str = ""  # link ou nome do arquivo, para o histórico de avaliações
     rated: bool = False
     last_edit: str = ""  # hash das notas já registradas como edição no feedback
+    batch: str = ""  # id do lote (várias variações da mesma fonte gerados de uma vez)
+    variant: str = ""  # rótulo da variação dentro do lote (ex.: stem "other")
+    stem: str = ""  # stem pedido (o do resultado só existe depois de pronto)
+    origin: str = ""  # link ou caminho completo da fonte, para refazer com outra trilha
+    start: float = 0.0
+    end: float | None = None
     created: float = field(default_factory=lambda: __import__("time").time())
 
     def to_dict(self) -> dict:
-        data = {"id": self.id, "status": self.status, "message": self.message, "error": self.error}
+        data = {
+            "id": self.id,
+            "status": self.status,
+            "message": self.message,
+            "error": self.error,
+            "batch": self.batch or None,
+            "variant": self.variant,
+            "source": self.source,
+            "stem": self.stem,
+        }
         r = self.result
         if r is not None:
             data["result"] = {
@@ -84,9 +99,20 @@ class JobManager:
         part: int | None = None,
         start: float = 0.0,
         end: float | None = None,
+        batch: str = "",
+        variant: str = "",
     ) -> Job:
         label = source if is_url(source) else Path(source).name
-        job = Job(id=uuid.uuid4().hex, source=label)
+        job = Job(
+            id=uuid.uuid4().hex,
+            source=label,
+            batch=batch,
+            variant=variant,
+            stem=stem,
+            origin=source,
+            start=start,
+            end=end,
+        )
         with self._lock:
             self._jobs[job.id] = job
             while len(self._jobs) > MAX_JOBS:
@@ -97,6 +123,10 @@ class JobManager:
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def batch_jobs(self, batch_id: str) -> list[Job]:
+        with self._lock:
+            return [j for j in self._jobs.values() if j.batch == batch_id]
 
     def _run(
         self,

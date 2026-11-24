@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Faixa · coil-prep</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .layout { display:grid; gap:16px; grid-template-columns:minmax(0,1fr); }
+  @media (min-width: 1000px) { .layout { grid-template-columns:minmax(0,1fr) 340px; align-items:start; } .side { position:sticky; top:64px; } }
+  .player { position:sticky; top:49px; z-index:5; }
+</style>
+</head>
+<body>
+<main class="wide">
+  <p class="crumb"><a id="back" href="/">← Variações</a></p>
+  <h1 id="title">Faixa</h1>
+  <p id="status" class="hidden" aria-live="polite"></p>
+
+  <div id="page" class="layout hidden">
+    <div>
+      <section class="card player">
+        <audio id="audio-result" controls preload="none"></audio>
+        <p id="summary" class="muted" style="margin:0"></p>
+        <p id="warnings" class="warn" style="margin:4px 0 0"></p>
+      </section>
+
+      <section class="card" id="editor">
+        <h2>Editor de notas</h2>
+        <div class="toolbar" role="toolbar" aria-label="Ferramentas">
+          <button type="button" id="ed-play" title="Tocar/pausar (Espaço)">▶</button>
+          <button type="button" id="tool-select" class="tool on" aria-pressed="true" title="Selecionar (E): arraste para selecionar várias">↖ Selecionar</button>
+          <button type="button" id="tool-draw" class="tool" aria-pressed="false" title="Desenhar (P): arraste para criar uma nota">✏ Desenhar</button>
+          <select id="ed-snap" aria-label="Grade" title="Grade (Alt ignora)">
+            <option value="0">Grade: livre</option><option value="0.01">10 ms</option>
+            <option value="0.05" selected>50 ms</option><option value="0.1">100 ms</option><option value="0.25">250 ms</option>
+          </select>
+        </div>
+        <div class="toolbar">
+          <button type="button" id="ed-undo" title="Desfazer (Ctrl+Z)">↶</button>
+          <button type="button" id="ed-redo" title="Refazer (Ctrl+Shift+Z)">↷</button>
+          <button type="button" id="ed-dup" title="Duplicar seleção (Ctrl+D)">⧉ Duplicar</button>
+          <button type="button" id="ed-del" title="Excluir (Delete)">🗑 Excluir</button>
+          <button type="button" id="ed-zout" aria-label="Diminuir zoom" title="Zoom − (Ctrl+roda)">−</button>
+          <button type="button" id="ed-zin" aria-label="Aumentar zoom" title="Zoom +">+</button>
+          <button type="button" id="ed-fit" title="Ajustar tudo na tela (F)">⤢ Ajustar</button>
+        </div>
+        <div class="toolbar">
+          <label><input type="checkbox" id="ed-preview" checked> Ouvir nota ao editar</label>
+          <label><input type="checkbox" id="ed-follow" checked> Seguir cursor</label>
+        </div>
+        <canvas id="roll" aria-label="Editor de notas (piano roll)"></canvas>
+        <div class="toolbar">
+          <button type="button" class="primary" id="ed-apply" style="margin:0;width:auto" disabled>Aplicar e ouvir</button>
+          <button type="button" id="ed-reset">Restaurar geradas</button>
+        </div>
+        <p id="ed-sel" class="muted" style="margin:4px 0;min-height:1.3em" aria-live="polite"></p>
+        <p id="ed-msg" class="muted" style="margin:4px 0"></p>
+        <details class="help"><summary>Como editar</summary>
+          <p class="muted"><strong>Mouse:</strong> arraste uma nota para mover (tempo e tom); arraste as bordas para mudar a duração; no espaço vazio, arraste para selecionar várias (Shift soma); botão direito exclui; Ctrl+arrastar copia; Alt ignora a grade. Duplo clique cria uma nota; com a ferramenta Desenhar, clique e arraste cria. Roda do mouse rola, Ctrl+roda dá zoom. Clique na régua para posicionar o cursor, no teclado à esquerda para ouvir o tom.<br>
+          <strong>Teclado:</strong> Espaço toca/pausa · Delete exclui · Ctrl+A tudo · Ctrl+C/X/V copia/recorta/cola no cursor · Ctrl+D duplica · Ctrl+Z/Shift+Z desfaz/refaz · setas movem (Shift = passo maior ou oitava) · E/P trocam a ferramenta · F ajusta o zoom · Esc limpa a seleção.<br>
+          <strong>Toque:</strong> toque numa nota para selecionar e arraste para mover; arraste uma borda para a duração; arraste no vazio para rolar; segure e arraste no vazio para selecionar várias; pinça dá zoom e dois dedos rolam; toque duas vezes no vazio para criar.<br>
+          Notas tracejadas mostram o que o app gerou e você mudou ou apagou; notas vermelhas se sobrepõem (a bobina toca uma por vez, então a anterior será cortada). O tom fica sempre dentro da faixa calibrada. Depois de editar, clique em "Aplicar e ouvir".</p>
+        </details>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <h2>Som</h2>
+        <label for="speed">Velocidade (mantém o tom; vale também para o WAV)</label>
+        <select id="speed">
+          <option value="0.5">0,5x</option><option value="0.75">0,75x</option>
+          <option value="1" selected>1x</option><option value="1.25">1,25x</option><option value="1.5">1,5x</option>
+        </select>
+        <label for="style">Estilo da onda (timbre)</label>
+        <select id="style"></select>
+        <p id="style-info" class="muted" style="margin:4px 0 0"></p>
+        <div id="box-part" class="hidden">
+          <label for="part">Trilha do MIDI (a melodia)</label>
+          <select id="part"></select>
+          <p class="muted" style="margin:4px 0 0">Trocar a trilha gera uma nova faixa neste lote e abre o editor dela; esta continua nas variações.</p>
+        </div>
+        <div id="box-original">
+          <label>Original</label>
+          <audio id="audio-original" controls preload="none"></audio>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Exportar</h2>
+        <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a> · <a id="download-mid" class="dl">Baixar MIDI</a>
+      </section>
+
+      <section class="card" id="rate">
+        <h2>Como soou na bobina?</h2>
+        <div class="row">
+          <button type="button" id="good">👍 Soou bem</button>
+          <button type="button" id="bad">👎 Soou ruim</button>
+        </div>
+        <div id="tag-box" class="hidden" style="margin-top:8px">
+          <select id="tag" aria-label="O que deu errado?"></select>
+          <button type="button" id="save-bad" style="margin-top:8px;width:100%">Salvar avaliação</button>
+        </div>
+        <p id="rate-msg" class="muted" style="margin-bottom:0"></p>
+      </section>
+    </aside>
+  </div>
+</main>
+<script src="/static/common.js"></script>
+<script src="/static/editor.js"></script>
+<script>
+const jobId = location.pathname.split("/").filter(Boolean).pop();
+let roll = null, previewCtx = null, speed = 1, job = null;
+
+function showStatus(text, isError) {
+  const s = $("status");
+  s.className = "card" + (isError ? " error" : "");
+  s.textContent = "";
+  if (!isError) { const sp = document.createElement("span"); sp.className = "spin"; s.appendChild(sp); }
+  s.appendChild(document.createTextNode(text));
+}
+
+async function poll() {
+  try {
+    job = await getJSON(`/api/jobs/${jobId}`);
+  } catch (e) { showStatus(e.message === "job não encontrado" ? "Faixa não encontrada (o servidor reiniciou?). Volte e gere de novo." : "Perdi a conexão com o servidor.", true); return; }
+  if (job.batch) $("back").href = "/?lote=" + job.batch;
+  $("title").textContent = job.variant ? `Faixa · ${job.variant}` : "Faixa";
+  document.title = `${$("title").textContent} · coil-prep`;
+  if (job.status === "done") { $("status").className = "hidden"; showResult(job); return; }
+  if (job.status === "error") { showStatus("Erro: " + job.error, true); return; }
+  showStatus(job.status === "queued" ? "Na fila..." : job.message);
+  setTimeout(poll, 1000);
+}
+
+function previewTone(p) {
+  if (!$("ed-preview").checked) return;
+  previewCtx = previewCtx || new AudioContext();
+  const o = previewCtx.createOscillator(), g = previewCtx.createGain();
+  o.type = "square"; o.frequency.value = 440 * 2 ** ((p - 69) / 12);
+  g.gain.value = 0.05; o.connect(g); g.connect(previewCtx.destination);
+  o.start(); o.stop(previewCtx.currentTime + 0.15);
+}
+
+async function loadNotes() {
+  let d;
+  try { d = await getJSON(`/api/jobs/${jobId}/notes`); } catch (e) { return; }
+  if (!roll) {
+    roll = new PianoRoll($("roll"), {
+      onChange: () => { $("ed-apply").disabled = !roll.dirty; $("ed-msg").textContent = roll.dirty ? "Alterações ainda não aplicadas ao áudio." : ""; },
+      onSeek: (t) => { $("audio-result").currentTime = t / speed; roll.setPlayhead(t); },
+      onPreview: previewTone,
+      onTogglePlay: () => { const a = $("audio-result"); a.paused ? a.play().catch(() => {}) : a.pause(); },
+      onSelect: showSelection,
+      onTool: (t) => { for (const k of ["select", "draw"]) { const b = $("tool-" + k); b.classList.toggle("on", k === t); b.setAttribute("aria-pressed", k === t); } },
+    });
+    roll.setSnap(parseFloat($("ed-snap").value)); roll.follow = $("ed-follow").checked;
+  }
+  roll.setData({ notes: d.notes, generated: d.generated, minPitch: d.min_pitch, maxPitch: d.max_pitch });
+  $("ed-apply").disabled = true; $("ed-msg").textContent = "";
+}
+
+async function putNotes(notes) {
+  try {
+    const body = await putJSON(`/api/jobs/${jobId}/notes`, { notes });
+    roll.setData({ notes: body.notes, generated: body.generated, minPitch: body.min_pitch, maxPitch: body.max_pitch });
+    setResultSrc();
+    $("summary").textContent = `${body.notes.length} trechos | faixa ${body.min_hz}–${body.max_hz} Hz | pico ${body.peak_db} dBFS`;
+    $("ed-apply").disabled = true; $("ed-msg").textContent = "Áudio atualizado.";
+    return true;
+  } catch (e) { $("ed-msg").textContent = e.message || "Não consegui aplicar as edições."; return false; }
+}
+
+$("ed-apply").onclick = async () => { if (roll && await putNotes(roll.getNotes())) $("audio-result").play().catch(() => {}); };
+$("ed-reset").onclick = async () => {
+  if (!roll) return;
+  if (await putNotes(roll.generated.map((n) => ({ ...n })))) $("audio-result").play().catch(() => {});
+};
+function showSelection(g) {
+  const el = $("ed-sel");
+  if (!g.length) { el.textContent = ""; return; }
+  const hz = (p) => Math.round(440 * 2 ** ((p - 69) / 12));
+  if (g.length === 1) {
+    const n = g[0];
+    el.textContent = `${noteName(n.pitch)} (${hz(n.pitch)} Hz) · início ${n.start.toFixed(2)} s · duração ${Math.round((n.end - n.start) * 1000)} ms`;
+  } else el.textContent = `${g.length} notas selecionadas`;
+}
+$("tool-select").onclick = () => roll && roll.setTool("select");
+$("tool-draw").onclick = () => roll && roll.setTool("draw");
+$("ed-snap").onchange = (e) => roll && roll.setSnap(parseFloat(e.target.value));
+$("ed-follow").onchange = (e) => { if (roll) roll.follow = e.target.checked; };
+$("ed-dup").onclick = () => roll && roll.duplicate();
+$("ed-fit").onclick = () => roll && roll.fit();
+$("ed-play").onclick = () => { const a = $("audio-result"); a.paused ? a.play().catch(() => {}) : a.pause(); };
+$("audio-result").addEventListener("play", () => { roll && roll.setPlaying(true); $("ed-play").textContent = "⏸"; });
+for (const ev of ["pause", "ended"]) $("audio-result").addEventListener(ev, () => { roll && roll.setPlaying(false); $("ed-play").textContent = "▶"; });
+$("ed-undo").onclick = () => roll && roll.undo();
+$("ed-redo").onclick = () => roll && roll.redo();
+$("ed-del").onclick = () => roll && roll.deleteSelected();
+$("ed-zin").onclick = () => roll && roll.zoom(1.3);
+$("ed-zout").onclick = () => roll && roll.zoom(1 / 1.3);
+$("audio-result").addEventListener("loadedmetadata", (e) => roll && roll.setAudioDuration(e.target.duration * speed));
+$("audio-result").addEventListener("timeupdate", (e) => roll && roll.setPlayhead(e.target.currentTime * speed));
+$("audio-result").addEventListener("play", function tick() {
+  const a = $("audio-result");
+  if (roll) roll.setPlayhead(a.currentTime * speed);
+  if (!a.paused && !a.ended) requestAnimationFrame(tick);
+});
+
+function setResultSrc() {
+  const q = speed === 1 ? "" : `&speed=${speed}`;
+  $("audio-result").src = `/api/jobs/${jobId}/audio/result?v=${Date.now()}${q}`;
+  setDownloadLink();
+}
+function setDownloadLink() {
+  const q = speed === 1 ? "" : `&speed=${speed}`;
+  $("download").href = `/api/jobs/${jobId}/audio/result?download=true${q}`;
+}
+function showStyle(r) {
+  const f = r.fidelity || {}, sel = $("style");
+  sel.innerHTML = "";
+  for (const p of f.presets || []) {
+    const sc = p.scores ? ` · score ${Math.round(p.scores.total * 100)}` : "";
+    const hint = p.id === "auto" ? ` → ${Math.round(p.duty * 100)}%/${Math.round(p.gate * 100)}%` : "";
+    sel.add(new Option(`${p.label}${hint}${sc}`, p.id));
+  }
+  sel.value = r.style;
+  const cur = (f.presets || []).find((p) => p.id === r.style), s = cur && cur.scores;
+  $("style-info").textContent = s
+    ? `Nota ${Math.round(s.note * 100)}% · início ${Math.round(s.onset * 100)}% · envelope ${Math.round(s.envelope * 100)}%${s.brightness == null ? "" : ` · brilho ${Math.round(s.brightness * 100)}%`} (parecença com o original, medida no computador; só o seu ouvido na bobina decide). Duty = largura do pulso; "notas N%" = quanto de cada nota soa.`
+    : "Sem medida para este preset; teste de ouvido.";
+}
+$("style").onchange = async (e) => {
+  try {
+    await putJSON(`/api/jobs/${jobId}/style`, { style: e.target.value });
+    const j = await getJSON(`/api/jobs/${jobId}`);
+    showStyle(j.result); setResultSrc();
+    $("audio-result").play().catch(() => {});
+  } catch (err) { $("style-info").textContent = "Não consegui trocar o estilo."; }
+};
+$("speed").onchange = (e) => { speed = parseFloat(e.target.value); setResultSrc(); };
+
+function showParts(r) {
+  const sel = $("part"), parts = r.parts || [];
+  $("box-part").classList.toggle("hidden", parts.length < 2);
+  sel.textContent = "";
+  sel.add(new Option("Automático: combina as trilhas que parecem melodia", "auto"));
+  for (const p of parts) {
+    const used = p.used > 0 ? ` · usada ${Math.round(p.used)} s` : "";
+    sel.add(new Option(`${p.name} · ${p.notes} notas · ${noteName(p.lo)}–${noteName(p.hi)}${used}`, p.id));
+  }
+  sel.add(new Option("Todas as trilhas misturadas", -1));
+  sel.value = r.part === null || r.part === undefined ? "auto" : String(r.part);
+}
+$("part").onchange = async (e) => {
+  const part = e.target.value === "auto" ? null : parseInt(e.target.value, 10);
+  try {
+    const j = await postJSON(`/api/jobs/${jobId}/part`, { part });
+    location.href = `/faixa/${j.id}`;
+  } catch (err) { $("ed-msg").textContent = err.message; }
+};
+
+async function showResult(job) {
+  const r = job.result, base = `/api/jobs/${job.id}/audio/`;
+  $("page").classList.remove("hidden");
+  loadNotes();
+  speed = 1; $("speed").value = "1"; setResultSrc();
+  showParts(r); showStyle(r);
+  $("box-original").classList.toggle("hidden", !r.has_original);
+  if (r.has_original) $("audio-original").src = base + "original";
+  $("download").setAttribute("download", r.filename);
+  $("download-mp3").href = base + "result?format=mp3&download=true";
+  $("download-mid").href = `/api/jobs/${job.id}/midi`;
+  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}${r.bpm ? ` | ritmo na grade de ${r.bpm} BPM` : ""}`;
+  const w = [];
+  if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Volte às variações e compare outro "som".`);
+  if (r.range_warning) w.push(`${Math.round(r.out_of_range * 100)}% do tempo ficou fora da faixa mesmo após transpor; essas notas foram dobradas de oitava e podem soar com saltos.`);
+  if (r.moved_warning) w.push(`${Math.round(r.moved * 100)}% do tempo teve notas movidas de oitava para caber em ${r.min_hz}–${r.max_hz} Hz (a nota é a mesma, só a oitava muda). Se a bobina aguentar, aumente o "Maior Hz" em Calibrar.`);
+  if (r.fast_warning) w.push(`Notas curtas (mediana ${r.median_note_ms} ms): a bobina pode não formar o arco; tente velocidade 0,75x ou 0,5x.`);
+  if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
+  $("warnings").textContent = w.join(" ");
+  const st = await loadState();
+  if (st) { const sel = $("tag"); if (!sel.options.length) st.tags.forEach((t) => sel.add(new Option(t, t))); }
+}
+
+async function sendFeedback(rating, tag) {
+  try {
+    const info = await postJSON(`/api/jobs/${jobId}/feedback`, { rating, tag });
+    $("good").parentElement.classList.add("hidden"); $("tag-box").classList.add("hidden");
+    $("rate-msg").textContent = "Avaliação salva. Obrigado! Ela ajuda a sugerir o melhor som nas próximas." + (info.edit_recorded ? " Suas edições também foram registradas como comparação." : "");
+  } catch (e) { $("rate-msg").textContent = e.message || "Não consegui salvar a avaliação."; }
+}
+$("good").onclick = () => sendFeedback(1, null);
+$("bad").onclick = () => $("tag-box").classList.remove("hidden");
+$("save-bad").onclick = () => sendFeedback(-1, $("tag").value);
+
+poll();
+</script>
+</body>
+</html>
