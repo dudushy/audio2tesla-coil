@@ -18,7 +18,13 @@
   let amp = 10 ** (-8 / 20), range = null;  // range = [minHz, maxHz] calibrados
   let ctx = null, osc = null, gain = null, current = null, held = new Set();
 
-  const octaves = () => (kb.clientWidth && kb.clientWidth < 480 ? 1 : 2);
+  const full = root.dataset.full !== undefined;  // página dedicada: usa a largura toda
+  // tecla branca com pelo menos ~44 px (alvo de toque); página dedicada mostra até as 5 oitavas
+  const octaves = () => {
+    const w = kb.clientWidth;
+    if (full) return Math.max(1, Math.min(5, Math.floor(w / 308)));
+    return w && w < 480 ? 1 : 2;
+  };
   const top = () => Math.min(base + 12 * octaves() - 1, HIGH);
 
   let shown = 0;  // oitavas desenhadas
@@ -103,7 +109,9 @@
   function shift(dir) { base += 12 * dir; build(); }
   root.querySelector("#kb-down").onclick = () => shift(-1);
   root.querySelector("#kb-up").onclick = () => shift(1);
-  kb.addEventListener("keydown", (e) => {
+  const keys = full ? document : kb;  // na página dedicada o teclado do computador funciona sempre
+  keys.addEventListener("keydown", (e) => {
+    if (e.target.closest && e.target.closest("input, select, textarea")) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const k = e.key.toLowerCase();
     if (k === "z") { shift(-1); e.preventDefault(); return; }
@@ -113,7 +121,7 @@
     if (p > HIGH) return;
     held.add(k); start(p); e.preventDefault();
   });
-  kb.addEventListener("keyup", (e) => {
+  keys.addEventListener("keyup", (e) => {
     const k = e.key.toLowerCase();
     if (!held.delete(k)) return;
     const rest = [...held].pop();  // soltou uma tecla com outra ainda apertada: volta para ela

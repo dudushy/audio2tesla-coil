@@ -5,6 +5,7 @@ import json
 import os
 import re
 import threading
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 
@@ -46,6 +47,10 @@ class NotesIn(BaseModel):
     notes: list[NoteIn]
 
 
+class PartIn(BaseModel):
+    part: int | None = None  # None = automático; -1 = todas as trilhas
+
+
 class StyleIn(BaseModel):
     style: str
 
@@ -84,9 +89,14 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     edit_lock = threading.Lock()
     app = FastAPI(title="coil-prep", docs_url=None, redoc_url=None)
 
-    @app.get("/")
-    def index():
-        return FileResponse(STATIC / "index.html")
+    def page(name: str):
+        return lambda: FileResponse(STATIC / name)
+
+    # páginas: gerar (+ variações), editor da faixa, teclado ao vivo e calibragem
+    app.get("/", include_in_schema=False)(page("index.html"))
+    app.get("/faixa/{job_id}", include_in_schema=False)(page("faixa.html"))
+    app.get("/teclado", include_in_schema=False)(page("teclado.html"))
+    app.get("/calibrar", include_in_schema=False)(page("calibrar.html"))
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():
@@ -101,6 +111,31 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         except OSError:
             raise HTTPException(502, "não consegui consultar o BitMidi agora") from None
 
+    async def save_source(url: str, file: UploadFile | None) -> tuple[str, bool]:
+        """Valida link OU arquivo e devolve (fonte, é .mid). O arquivo vai para data/input."""
+        url = url.strip()
+        if bool(url) == (file is not None and bool(file.filename)):
+            raise HTTPException(422, "envie um link OU um arquivo")
+        if url:
+            if not is_url(url):
+                raise HTTPException(422, "o link precisa começar com http:// ou https://")
+            return url, False
+        name, ext = safe_name(file.filename)
+        if ext not in UPLOAD_EXTS:
+            raise HTTPException(422, f"formato não suportado: {ext or '(sem extensão)'}")
+        data = await file.read(MAX_UPLOAD + 1)
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, "arquivo maior que 100 MB")
+        # hash no nome: o mesmo arquivo reaproveita o cache do Demucs ao testar outro stem
+        dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}{ext}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return str(dest), ext in MIDI_EXTS
+
+    def check_span(start: float, end: float | None) -> None:
+        if start < 0 or (end is not None and end - start < 1):
+            raise HTTPException(422, "trecho inválido: o fim precisa ser depois do início")
+
     @app.post("/api/jobs")
     async def create_job(
         stem: str = Form("other"),
@@ -112,28 +147,55 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     ):
         if stem not in STEM_CHOICES:
             raise HTTPException(422, f"stem inválido: {stem}")
-        if start < 0 or (end is not None and end - start < 1):
-            raise HTTPException(422, "trecho inválido: o fim precisa ser depois do início")
-        url = url.strip()
-        if bool(url) == (file is not None and bool(file.filename)):
-            raise HTTPException(422, "envie um link OU um arquivo")
-        if url:
-            if not is_url(url):
-                raise HTTPException(422, "o link precisa começar com http:// ou https://")
-            source = url
-        else:
-            name, ext = safe_name(file.filename)
-            if ext not in UPLOAD_EXTS:
-                raise HTTPException(422, f"formato não suportado: {ext or '(sem extensão)'}")
-            data = await file.read(MAX_UPLOAD + 1)
-            if len(data) > MAX_UPLOAD:
-                raise HTTPException(413, "arquivo maior que 100 MB")
-            # hash no nome: o mesmo arquivo reaproveita o cache do Demucs ao testar outro stem
-            dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}{ext}"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-            source = str(dest)
+        check_span(start, end)
+        source, _ = await save_source(url, file)
         return jobs.submit(source, stem, part, start, end).to_dict()
+
+    @app.post("/api/batches")
+    async def create_batch(
+        stems: str = Form(
+            ",".join(STEM_CHOICES)
+        ),  # áudio: quais stems gerar, separados por vírgula
+        url: str = Form(""),
+        start: float = Form(0.0),
+        end: float | None = Form(None),
+        file: UploadFile | None = File(None),  # noqa: B008
+    ):
+        """Gera todas as variações de uma vez: um job por stem (áudio) ou por modo de trilha (.mid)."""
+        wanted = list(dict.fromkeys(s.strip() for s in stems.split(",") if s.strip()))
+        if any(s not in STEM_CHOICES for s in wanted) or (not wanted):
+            raise HTTPException(422, f"stems inválidos: {stems}")
+        check_span(start, end)
+        source, is_midi = await save_source(url, file)
+        batch_id = uuid.uuid4().hex
+        # .mid não tem stem: as variações são o modo de trilha (automático x todas misturadas)
+        plan = (
+            [("mix", None, "trilhas automáticas"), ("mix", -1, "todas as trilhas")]
+            if is_midi
+            else [(s, None, s) for s in wanted]
+        )
+        made = [jobs.submit(source, s, p, start, end, batch_id, label) for s, p, label in plan]
+        return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
+
+    @app.get("/api/batches/{batch_id}")
+    def batch_status(batch_id: str):
+        made = jobs.batch_jobs(batch_id)
+        if not made:
+            raise HTTPException(404, "lote não encontrado")
+        return {"id": batch_id, "source": made[0].source, "jobs": [j.to_dict() for j in made]}
+
+    @app.post("/api/jobs/{job_id}/part")
+    def redo_with_part(job_id: str, body: PartIn):
+        """Refaz um .mid com outra trilha (novo job no mesmo lote; o original fica para comparar)."""
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "job não encontrado")
+        label = "trilhas automáticas" if body.part is None else f"trilha {body.part}"
+        if body.part == -1:
+            label = "todas as trilhas"
+        return jobs.submit(
+            job.origin, job.stem, body.part, job.start, job.end, job.batch, label
+        ).to_dict()
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job_id: str):

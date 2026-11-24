@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calibrar · coil-prep</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main>
+  <h1>Calibrar a bobina</h1>
+  <p class="sub">Faixa atual: <strong id="cal-current">100–800 Hz (padrão)</strong>. Toque os tons com o volume <strong>BAIXO</strong> na bobina, anote quais soam como nota clara e informe o menor e o maior Hz.</p>
+  <section class="card">
+    <audio id="audio-tones" controls preload="none" src="/api/calibrate/tones.wav"></audio>
+    <table id="tone-table"></table>
+    <div class="row">
+      <div><label for="min-hz">Menor Hz</label><input id="min-hz" type="number" min="1" step="any" inputmode="decimal"></div>
+      <div><label for="max-hz">Maior Hz</label><input id="max-hz" type="number" min="1" step="any" inputmode="decimal"></div>
+    </div>
+    <button class="primary" id="save-cal" type="button">Salvar calibragem</button>
+    <p id="cal-msg" class="muted"></p>
+  </section>
+  <p class="muted">Dica: o <a href="/teclado">Teclado</a> também serve para achar o limite: toque notas subindo e descendo e veja onde a bobina deixa de soar clara.</p>
+</main>
+<script src="/static/common.js"></script>
+<script>
+async function init() {
+  const st = await loadState();
+  if (st && st.profile) {
+    $("cal-current").textContent = `${st.profile.min_hz}–${st.profile.max_hz} Hz`;
+    $("min-hz").value = st.profile.min_hz;
+    $("max-hz").value = st.profile.max_hz;
+  }
+  try {
+    const info = await getJSON("/api/calibrate");
+    const t = $("tone-table");
+    for (const x of info.tones) {
+      const tr = t.insertRow();
+      tr.insertCell().textContent = `${x.start.toFixed(1)} s`;
+      tr.insertCell().textContent = `${x.hz} Hz`;
+    }
+  } catch (e) { /* a tabela é só apoio */ }
+}
+$("save-cal").onclick = async () => {
+  try {
+    const p = await putJSON("/api/profile", { min_hz: parseFloat($("min-hz").value), max_hz: parseFloat($("max-hz").value) });
+    $("cal-msg").textContent = "Calibragem salva.";
+    $("cal-current").textContent = `${p.min_hz}–${p.max_hz} Hz`;
+  } catch (e) { $("cal-msg").textContent = e.message || "Valores inválidos."; }
+};
+init();
+</script>
+</body>
+</html>

@@ -5,61 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>coil-prep</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>
-  :root { --bg:#fff; --fg:#1b1b1f; --muted:#62666e; --card:#f4f5f8; --line:#d5d8df; --accent:#5b3df5; --accent-fg:#fff; --bad:#c62828; --warn:#8a5a00; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#121216; --fg:#ececf1; --muted:#9aa0ab; --card:#1c1c23; --line:#33343d; --accent:#8c78ff; --accent-fg:#101014; --bad:#ff7b72; --warn:#e3b341; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
-  main { max-width:640px; margin:0 auto; padding:16px; }
-  h1 { font-size:1.4rem; margin:8px 0 4px; }
-  p.sub { color:var(--muted); margin:0 0 16px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
-  label { display:block; font-weight:600; margin:12px 0 4px; }
-  label:first-child { margin-top:0; }
-  input[type=url], input[type=text], input[type=file], select { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-  .tabs { display:flex; gap:8px; margin-bottom:12px; }
-  .tabs button { flex:1; }
-  button { min-height:44px; padding:8px 14px; font:inherit; font-weight:600; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); cursor:pointer; }
-  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); width:100%; margin-top:16px; }
-  button[aria-pressed=true] { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  audio { width:100%; margin:4px 0 12px; }
-  .hidden { display:none; }
-  .muted { color:var(--muted); }
-  .error { color:var(--bad); white-space:pre-wrap; }
-  .warn { color:var(--warn); }
-  .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-2px; margin-right:6px; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .row { display:flex; gap:8px; }
-  .row > * { flex:1; }
-  input[type=number] { width:100%; min-height:44px; padding:8px 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-  details summary { cursor:pointer; font-weight:600; min-height:44px; display:flex; align-items:center; }
-  table { width:100%; border-collapse:collapse; margin:8px 0; font-variant-numeric:tabular-nums; }
-  td, th { text-align:left; padding:2px 8px 2px 0; }
-  canvas#roll { width:100%; display:block; touch-action:none; border:1px solid var(--line); border-radius:8px; outline-offset:2px; }
-  .toolbar { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; align-items:center; }
-  .toolbar button { min-height:40px; padding:4px 10px; }
-  .toolbar .tool.on { background:var(--accent); color:var(--bg); border-color:var(--accent); }
-  .toolbar select { width:auto; min-height:40px; }
-  .toolbar label { margin:0; font-weight:400; display:inline-flex; align-items:center; gap:6px; }
-  details.help { margin:8px 0; }
-  .kb { position:relative; height:150px; user-select:none; touch-action:none; outline-offset:2px; border-radius:8px; }
-  .kb .key { position:absolute; top:0; margin:0; padding:0; min-height:0; border-radius:0 0 6px 6px; touch-action:none; }
-  .kb .white { height:100%; background:#fff; color:#333; border:1px solid #9a9ea8; display:flex; align-items:flex-end; justify-content:center; padding-bottom:4px; }
-  .kb .white span { font-size:.7rem; pointer-events:none; }
-  .kb .black { height:60%; background:#222; border:1px solid #000; z-index:2; }
-  .kb .out { opacity:.45; }
-  .kb .white.on { background:var(--accent); color:var(--accent-fg); }
-  .kb .black.on { background:var(--accent); }
-  a.dl { display:inline-block; margin-top:4px; color:var(--accent); }
-</style>
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<main>
-  <h1>coil-prep</h1>
-  <p class="sub">Melodia em onda quadrada para a bobina. Comece sempre com o <strong>volume baixo</strong>.</p>
+<main class="wide">
+  <h1>Gerar melodia para a bobina</h1>
+  <p class="sub">Uma ação gera todas as variações; ouça e avalie lado a lado, depois abra a melhor no editor. Comece sempre com o <strong>volume baixo</strong>.</p>
 
   <form id="form" class="card">
     <div class="tabs" role="group" aria-label="Fonte">
@@ -76,7 +27,7 @@
       <details id="bm" style="margin-top:8px">
         <summary>Buscar MIDI no BitMidi</summary>
         <div class="row">
-          <input id="bm-q" type="search" placeholder="ex.: mario" autocomplete="off" style="flex:3;min-height:44px;padding:8px 10px;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px">
+          <input id="bm-q" type="search" placeholder="ex.: mario" autocomplete="off" style="flex:3">
           <button type="button" id="bm-go">Buscar</button>
         </div>
         <ul id="bm-list" style="padding-left:20px"></ul>
@@ -84,135 +35,36 @@
         <p id="bm-msg" class="muted" style="margin:6px 0 0">Abra a página, baixe o .mid e selecione-o no campo acima (ou arraste-o para ele). O app não baixa os arquivos por você.</p>
       </details>
     </div>
-    <label for="stem">Som a usar</label>
-    <select id="stem">
-      <option value="other">other: melodia em sintes (padrão)</option>
-      <option value="vocals">vocals: voz cantada</option>
-      <option value="mix">mix completo (sem separar)</option>
-    </select>
-    <p id="hint" class="muted hidden" style="margin:6px 0 0"></p>
-    <label for="t-start">Trecho da música (opcional)</label>
-    <div class="row">
-      <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
-      <input id="t-end" type="text" inputmode="decimal" placeholder="fim (ex.: 1:45)" autocomplete="off" aria-label="Fim do trecho">
+    <label id="stems-label">Variações a gerar</label>
+    <div class="checks" id="stems" role="group" aria-labelledby="stems-label">
+      <label><input type="checkbox" value="other" checked> other · melodia em sintes</label>
+      <label><input type="checkbox" value="vocals" checked> vocals · voz cantada</label>
+      <label><input type="checkbox" value="mix" checked> mix · sem separar</label>
     </div>
-    <button class="primary" id="go" type="submit">Gerar</button>
-    <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos.</p>
+    <p class="muted" style="margin:2px 0 0">Para arquivo .mid as variações são outras: trilhas automáticas x todas as trilhas misturadas.</p>
+    <details style="margin-top:8px">
+      <summary>Trecho da música (opcional)</summary>
+      <div class="row">
+        <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
+        <input id="t-end" type="text" inputmode="decimal" placeholder="fim (ex.: 1:45)" autocomplete="off" aria-label="Fim do trecho">
+      </div>
+    </details>
+    <button class="primary" id="go" type="submit">Gerar todas as variações</button>
+    <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos; as variações entram numa fila e cada uma aparece abaixo assim que fica pronta.</p>
   </form>
 
-  <section class="card" id="kb-box">
-    <details open>
-      <summary>Tocar ao vivo (teclado)</summary>
-      <p class="muted" style="margin-top:0">Onda quadrada direto no navegador, sem gerar arquivo. Volume baixo primeiro. 1 nota por vez; arraste o dedo/mouse para deslizar entre as teclas. Teclado do computador: clique no piano e use A W S E D F T G Y H U J K O L (Z/X trocam a oitava). Teclas esmaecidas ficam fora da faixa calibrada.</p>
-      <div class="toolbar">
-        <button type="button" id="kb-down" aria-label="Oitava abaixo">◀ Oitava</button>
-        <strong id="kb-oct" aria-live="polite"></strong>
-        <button type="button" id="kb-up" aria-label="Oitava acima">Oitava ▶</button>
-      </div>
-      <div class="kb" tabindex="0" role="group" aria-label="Teclado de piano (C2 a B6)"></div>
-      <p id="kb-info" class="muted" style="margin:6px 0 0" aria-live="polite"></p>
-    </details>
-  </section>
+  <p id="status" class="hidden" aria-live="polite"></p>
 
-  <section id="status" class="card hidden" aria-live="polite"></section>
-
-  <section id="result" class="card hidden">
-    <label>Resultado (onda quadrada)</label>
-    <audio id="audio-result" controls preload="none"></audio>
-    <label for="speed">Velocidade (mantém o tom; vale também para o download do WAV)</label>
-    <select id="speed">
-      <option value="0.5">0,5x</option><option value="0.75">0,75x</option>
-      <option value="1" selected>1x</option><option value="1.25">1,25x</option><option value="1.5">1,5x</option>
-    </select>
-    <div id="box-style">
-      <label for="style">Estilo da onda (timbre)</label>
-      <select id="style"></select>
-      <p id="style-info" class="muted" style="margin:4px 0 0"></p>
-    </div>
-    <div id="box-original">
-      <label>Original</label>
-      <audio id="audio-original" controls preload="none"></audio>
-    </div>
-    <div id="editor">
-      <label>Editor de notas</label>
-      <div class="toolbar" role="toolbar" aria-label="Ferramentas">
-        <button type="button" id="ed-play" title="Tocar/pausar (Espaço)">▶</button>
-        <button type="button" id="tool-select" class="tool on" aria-pressed="true" title="Selecionar (E): arraste para selecionar várias">↖ Selecionar</button>
-        <button type="button" id="tool-draw" class="tool" aria-pressed="false" title="Desenhar (P): arraste para criar uma nota">✏ Desenhar</button>
-        <select id="ed-snap" aria-label="Grade" title="Grade (Alt ignora)">
-          <option value="0">Grade: livre</option><option value="0.01">10 ms</option>
-          <option value="0.05" selected>50 ms</option><option value="0.1">100 ms</option><option value="0.25">250 ms</option>
-        </select>
-      </div>
-      <div class="toolbar">
-        <button type="button" id="ed-undo" title="Desfazer (Ctrl+Z)">↶</button>
-        <button type="button" id="ed-redo" title="Refazer (Ctrl+Shift+Z)">↷</button>
-        <button type="button" id="ed-dup" title="Duplicar seleção (Ctrl+D)">⧉ Duplicar</button>
-        <button type="button" id="ed-del" title="Excluir (Delete)">🗑 Excluir</button>
-        <button type="button" id="ed-zout" aria-label="Diminuir zoom" title="Zoom − (Ctrl+roda)">−</button>
-        <button type="button" id="ed-zin" aria-label="Aumentar zoom" title="Zoom +">+</button>
-        <button type="button" id="ed-fit" title="Ajustar tudo na tela (F)">⤢ Ajustar</button>
-      </div>
-      <div class="toolbar">
-        <label><input type="checkbox" id="ed-preview" checked> Ouvir nota ao editar</label>
-        <label><input type="checkbox" id="ed-follow" checked> Seguir cursor</label>
-      </div>
-      <canvas id="roll" aria-label="Editor de notas (piano roll)"></canvas>
-      <div class="toolbar">
-        <button type="button" class="primary" id="ed-apply" style="margin:0;width:auto" disabled>Aplicar e ouvir</button>
-        <button type="button" id="ed-reset">Restaurar geradas</button>
-      </div>
-      <p id="ed-sel" class="muted" style="margin:4px 0;min-height:1.3em" aria-live="polite"></p>
-      <p id="ed-msg" class="muted" style="margin:4px 0"></p>
-      <details class="help"><summary>Como editar</summary>
-        <p class="muted"><strong>Mouse:</strong> arraste uma nota para mover (tempo e tom); arraste as bordas para mudar a duração; no espaço vazio, arraste para selecionar várias (Shift soma); botão direito exclui; Ctrl+arrastar copia; Alt ignora a grade. Duplo clique cria uma nota; com a ferramenta Desenhar, clique e arraste cria. Roda do mouse rola, Ctrl+roda dá zoom. Clique na régua para posicionar o cursor, no teclado à esquerda para ouvir o tom.<br>
-        <strong>Teclado:</strong> Espaço toca/pausa · Delete exclui · Ctrl+A tudo · Ctrl+C/X/V copia/recorta/cola no cursor · Ctrl+D duplica · Ctrl+Z/Shift+Z desfaz/refaz · setas movem (Shift = passo maior ou oitava) · E/P trocam a ferramenta · F ajusta o zoom · Esc limpa a seleção.<br>
-        <strong>Toque:</strong> toque numa nota para selecionar e arraste para mover; arraste uma borda para a duração; arraste no vazio para rolar; segure e arraste no vazio para selecionar várias; pinça dá zoom e dois dedos rolam; toque duas vezes no vazio para criar.<br>
-        Notas tracejadas mostram o que o app gerou e você mudou ou apagou; notas vermelhas se sobrepõem (a bobina toca uma por vez, então a anterior será cortada). O tom fica sempre dentro da faixa calibrada. Depois de editar, clique em "Aplicar e ouvir".</p>
-      </details>
-    </div>
-    <div id="box-part" class="hidden">
-      <label for="part">Trilha do MIDI (a melodia)</label>
-      <select id="part"></select>
-      <p class="muted" style="margin:4px 0 0">No automático, a trilha que mais parece a melodia manda e outras trilhas só preenchem as pausas dela (a melodia costuma passar de um instrumento para outro). Se saiu errado, escolha uma trilha só.</p>
-    </div>
-    <p id="summary" class="muted"></p>
-    <p id="warnings" class="warn"></p>
-    <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a> · <a id="download-mid" class="dl">Baixar MIDI</a>
-    <div id="rate" style="margin-top:16px">
-      <label>Como soou na bobina?</label>
-      <div class="row">
-        <button type="button" id="good">👍 Soou bem</button>
-        <button type="button" id="bad">👎 Soou ruim</button>
-      </div>
-      <div id="tag-box" class="hidden" style="margin-top:8px">
-        <select id="tag" aria-label="O que deu errado?"></select>
-        <button type="button" id="save-bad" style="margin-top:8px;width:100%">Salvar avaliação</button>
-      </div>
-    </div>
-    <p id="rate-msg" class="muted"></p>
-  </section>
-
-  <section class="card">
-    <details id="cal">
-      <summary>Calibrar a bobina</summary>
-      <p class="muted">Faixa atual: <strong id="cal-current">100–800 Hz (padrão)</strong>. Toque os tons com o volume <strong>BAIXO</strong> na bobina, anote quais soam como nota clara e informe o menor e o maior Hz.</p>
-      <audio id="audio-tones" controls preload="none" src="/api/calibrate/tones.wav"></audio>
-      <table id="tone-table"></table>
-      <div class="row">
-        <div><label for="min-hz">Menor Hz</label><input id="min-hz" type="number" min="1" step="any" inputmode="decimal"></div>
-        <div><label for="max-hz">Maior Hz</label><input id="max-hz" type="number" min="1" step="any" inputmode="decimal"></div>
-      </div>
-      <button class="primary" id="save-cal" type="button">Salvar calibragem</button>
-      <p id="cal-msg" class="muted"></p>
-    </details>
+  <section id="batch" class="hidden" aria-labelledby="batch-h">
+    <h2 id="batch-h">Variações <span id="batch-src" class="muted" style="font-weight:400"></span></h2>
+    <div id="grid" class="grid"></div>
+    <p class="muted">Ouça cada uma na bobina, avalie com 👍/👎 e abra a melhor no editor. As avaliações ensinam o app a sugerir o melhor som (★) nas próximas músicas.</p>
   </section>
 </main>
-<script src="/static/editor.js"></script>
-<script src="/static/piano.js"></script>
+<script src="/static/common.js"></script>
 <script>
-const $ = (id) => document.getElementById(id);
-let mode = "url", timer = null, currentJob = null;
+let mode = "url", timer = null, batchId = null, tags = [], suggestion = null, ratings = 0;
+const cards = new Map();  // job id -> {el, status}
 
 function setMode(m) {
   mode = m;
@@ -230,9 +82,7 @@ async function bmSearch(page) {
   if (!q) { $("bm-msg").textContent = "Digite o que buscar."; return; }
   $("bm-msg").textContent = "Buscando...";
   try {
-    const res = await fetch(`/api/bitmidi/search?q=${encodeURIComponent(q)}&page=${page}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "erro na busca");
+    const data = await getJSON(`/api/bitmidi/search?q=${encodeURIComponent(q)}&page=${page}`);
     bmPage = page;
     const ul = $("bm-list");
     ul.textContent = "";
@@ -253,189 +103,13 @@ $("bm-q").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); bmSe
 $("bm-prev").onclick = () => bmSearch(bmPage - 1);
 $("bm-next").onclick = () => bmSearch(bmPage + 1);
 
-function showStatus(html, isError) {
+function showStatus(text, isError) {
   const s = $("status");
-  s.classList.remove("hidden");
   s.className = "card" + (isError ? " error" : "");
   s.textContent = "";
   if (!isError) { const sp = document.createElement("span"); sp.className = "spin"; s.appendChild(sp); }
-  s.appendChild(document.createTextNode(html));
+  s.appendChild(document.createTextNode(text));
 }
-
-let roll = null, previewCtx = null, baseUrl = "";
-
-function previewTone(p) {
-  if (!$("ed-preview").checked) return;
-  previewCtx = previewCtx || new AudioContext();
-  const o = previewCtx.createOscillator(), g = previewCtx.createGain();
-  o.type = "square"; o.frequency.value = 440 * 2 ** ((p - 69) / 12);
-  g.gain.value = 0.05; o.connect(g); g.connect(previewCtx.destination);
-  o.start(); o.stop(previewCtx.currentTime + 0.15);
-}
-
-async function loadNotes() {
-  const res = await fetch(`/api/jobs/${currentJob}/notes`);
-  if (!res.ok) return;
-  const d = await res.json();
-  if (!roll) {
-    roll = new PianoRoll($("roll"), {
-      onChange: () => { $("ed-apply").disabled = !roll.dirty; $("ed-msg").textContent = roll.dirty ? "Alterações ainda não aplicadas ao áudio." : ""; },
-      onSeek: (t) => { $("audio-result").currentTime = t / speed; roll.setPlayhead(t); },
-      onPreview: previewTone,
-      onTogglePlay: () => { const a = $("audio-result"); a.paused ? a.play().catch(() => {}) : a.pause(); },
-      onSelect: showSelection,
-      onTool: (t) => { for (const k of ["select", "draw"]) { const b = $("tool-" + k); b.classList.toggle("on", k === t); b.setAttribute("aria-pressed", k === t); } },
-    });
-    roll.setSnap(parseFloat($("ed-snap").value)); roll.follow = $("ed-follow").checked;
-  }
-  roll.setData({ notes: d.notes, generated: d.generated, minPitch: d.min_pitch, maxPitch: d.max_pitch });
-  $("ed-apply").disabled = true; $("ed-msg").textContent = "";
-}
-
-async function putNotes(notes) {
-  const res = await fetch(`/api/jobs/${currentJob}/notes`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) { $("ed-msg").textContent = typeof body.detail === "string" ? body.detail : "Não consegui aplicar as edições."; return false; }
-  roll.setData({ notes: body.notes, generated: body.generated, minPitch: body.min_pitch, maxPitch: body.max_pitch });
-  setResultSrc();
-  $("summary").textContent = `${body.notes.length} trechos | faixa ${body.min_hz}–${body.max_hz} Hz | pico ${body.peak_db} dBFS`;
-  $("ed-apply").disabled = true; $("ed-msg").textContent = "Áudio atualizado.";
-  return true;
-}
-
-$("ed-apply").onclick = async () => { if (roll && await putNotes(roll.getNotes())) $("audio-result").play().catch(() => {}); };
-$("ed-reset").onclick = async () => {
-  if (!roll) return;
-  if (await putNotes(roll.generated.map((n) => ({ ...n })))) $("audio-result").play().catch(() => {});
-};
-function showSelection(g) {
-  const el = $("ed-sel");
-  if (!g.length) { el.textContent = ""; return; }
-  const name = (p) => ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][p % 12] + (Math.floor(p / 12) - 1);
-  const hz = (p) => Math.round(440 * 2 ** ((p - 69) / 12));
-  if (g.length === 1) {
-    const n = g[0];
-    el.textContent = `${name(n.pitch)} (${hz(n.pitch)} Hz) · início ${n.start.toFixed(2)} s · duração ${Math.round((n.end - n.start) * 1000)} ms`;
-  } else el.textContent = `${g.length} notas selecionadas`;
-}
-$("tool-select").onclick = () => roll && roll.setTool("select");
-$("tool-draw").onclick = () => roll && roll.setTool("draw");
-$("ed-snap").onchange = (e) => roll && roll.setSnap(parseFloat(e.target.value));
-$("ed-follow").onchange = (e) => { if (roll) roll.follow = e.target.checked; };
-$("ed-dup").onclick = () => roll && roll.duplicate();
-$("ed-fit").onclick = () => roll && roll.fit();
-$("ed-play").onclick = () => { const a = $("audio-result"); a.paused ? a.play().catch(() => {}) : a.pause(); };
-$("audio-result").addEventListener("play", () => { roll && roll.setPlaying(true); $("ed-play").textContent = "⏸"; });
-for (const ev of ["pause", "ended"]) $("audio-result").addEventListener(ev, () => { roll && roll.setPlaying(false); $("ed-play").textContent = "▶"; });
-$("ed-undo").onclick = () => roll && roll.undo();
-$("ed-redo").onclick = () => roll && roll.redo();
-$("ed-del").onclick = () => roll && roll.deleteSelected();
-$("ed-zin").onclick = () => roll && roll.zoom(1.3);
-$("ed-zout").onclick = () => roll && roll.zoom(1 / 1.3);
-$("audio-result").addEventListener("loadedmetadata", (e) => roll && roll.setAudioDuration(e.target.duration * speed));
-$("audio-result").addEventListener("timeupdate", (e) => roll && roll.setPlayhead(e.target.currentTime * speed));
-$("audio-result").addEventListener("play", function tick() {
-  const a = $("audio-result");
-  if (roll) roll.setPlayhead(a.currentTime * speed);
-  if (!a.paused && !a.ended) requestAnimationFrame(tick);
-});
-
-let speed = 1;  // 1 = original; outro valor re-renderiza as notas mais lentas/rápidas (mesmo tom)
-function setResultSrc() {
-  const q = speed === 1 ? "" : `&speed=${speed}`;
-  $("audio-result").src = `/api/jobs/${currentJob}/audio/result?v=${Date.now()}${q}`;
-  setDownloadLink();
-}
-function setDownloadLink() {
-  const q = speed === 1 ? "" : `&speed=${speed}`;
-  $("download").href = `/api/jobs/${currentJob}/audio/result?download=true${q}`;
-}
-function showStyle(r) {
-  const f = r.fidelity || {}, sel = $("style");
-  sel.innerHTML = "";
-  for (const p of f.presets || []) {
-    const sc = p.scores ? ` · score ${Math.round(p.scores.total * 100)}` : "";
-    const hint = p.id === "auto" ? ` → ${Math.round(p.duty * 100)}%/${Math.round(p.gate * 100)}%` : "";
-    sel.add(new Option(`${p.label}${hint}${sc}`, p.id));
-  }
-  sel.value = r.style;
-  const cur = (f.presets || []).find((p) => p.id === r.style), s = cur && cur.scores;
-  $("style-info").textContent = s
-    ? `Nota ${Math.round(s.note * 100)}% · início ${Math.round(s.onset * 100)}% · envelope ${Math.round(s.envelope * 100)}%${s.brightness == null ? "" : ` · brilho ${Math.round(s.brightness * 100)}%`} (parecença com o original, medida no computador; só o seu ouvido na bobina decide). Duty = largura do pulso; "notas N%" = quanto de cada nota soa.`
-    : "Sem medida para este preset; teste de ouvido.";
-}
-$("style").onchange = async (e) => {
-  const res = await fetch(`/api/jobs/${currentJob}/style`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ style: e.target.value }),
-  });
-  if (!res.ok) { $("style-info").textContent = "Não consegui trocar o estilo."; return; }
-  const job = await (await fetch(`/api/jobs/${currentJob}`)).json();
-  showStyle(job.result); setResultSrc(); setDownloadLink();
-  $("audio-result").play().catch(() => {});
-};
-$("speed").onchange = (e) => { speed = parseFloat(e.target.value); setResultSrc(); };
-
-function showResult(job) {
-  currentJob = job.id;
-  loadNotes();
-  $("rate").classList.remove("hidden");
-  $("tag-box").classList.add("hidden");
-  $("rate-msg").textContent = "";
-  const r = job.result, base = `/api/jobs/${job.id}/audio/`;
-  $("status").classList.add("hidden");
-  $("result").classList.remove("hidden");
-  speed = 1; $("speed").value = "1"; setResultSrc();
-  showParts(r);
-  showStyle(r);
-  $("box-original").classList.toggle("hidden", !r.has_original);
-  if (r.has_original) $("audio-original").src = base + "original";
-  setDownloadLink();
-  $("download").setAttribute("download", r.filename);
-  $("download-mp3").href = base + "result?format=mp3&download=true";
-  $("download-mid").href = `/api/jobs/${job.id}/midi`;
-  $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}${r.bpm ? ` | ritmo na grade de ${r.bpm} BPM` : ""}`;
-  const w = [];
-  if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Tente outro "Som a usar".`);
-  if (r.range_warning) w.push(`${Math.round(r.out_of_range * 100)}% do tempo ficou fora da faixa mesmo após transpor; essas notas foram dobradas de oitava e podem soar com saltos.`);
-  if (r.moved_warning) w.push(`${Math.round(r.moved * 100)}% do tempo teve notas movidas de oitava para caber em ${r.min_hz}–${r.max_hz} Hz (a nota é a mesma, só a oitava muda; o desenho da melodia é mantido). Se a bobina aguentar, aumente o "Maior Hz" na calibragem.`);
-  if (r.fast_warning) w.push(`Notas curtas (mediana ${r.median_note_ms} ms): a bobina pode não formar o arco; tente velocidade 0,75x ou 0,5x.`);
-  if (!r.ok) w.push("Pico acima de -3 dBFS ou clipping.");
-  $("warnings").textContent = w.join(" ");
-}
-
-const noteName = (p) => ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][p % 12] + (Math.floor(p / 12) - 1);
-function showParts(r) {
-  const sel = $("part"), parts = r.parts || [];
-  $("box-part").classList.toggle("hidden", parts.length < 2);
-  sel.textContent = "";
-  sel.add(new Option("Automático: combina as trilhas que parecem melodia", "auto"));
-  for (const p of parts) {
-    const used = p.used > 0 ? ` · usada ${Math.round(p.used)} s` : "";
-    sel.add(new Option(`${p.name} · ${p.notes} notas · ${noteName(p.lo)}–${noteName(p.hi)}${used}`, p.id));
-  }
-  sel.add(new Option("Todas as trilhas misturadas", -1));
-  sel.value = r.part === null || r.part === undefined ? "auto" : String(r.part);
-}
-$("part").onchange = (e) => submitJob(e.target.value === "auto" ? undefined : parseInt(e.target.value, 10));
-
-async function poll(id) {
-  try {
-    const res = await fetch(`/api/jobs/${id}`);
-    const job = await res.json();
-    if (job.status === "done") { finish(); showResult(job); return; }
-    if (job.status === "error") { finish(); showStatus("Erro: " + job.error, true); return; }
-    showStatus(job.message);
-  } catch (e) {
-    finish(); showStatus("Perdi a conexão com o servidor.", true); return;
-  }
-  timer = setTimeout(() => poll(id), 1000);
-}
-
-function finish() { clearTimeout(timer); $("go").disabled = false; }
-
-let lastSource = null;  // {url} ou {file}: reenviado ao trocar a trilha do MIDI
 
 // "1:30" ou "90" -> segundos; vazio -> null; inválido -> NaN
 function parseTime(text) {
@@ -445,99 +119,149 @@ function parseTime(text) {
   return m ? (+(m[1] || 0)) * 60 + +m[2] : NaN;
 }
 
-async function submitJob(part) {
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
   const fd = new FormData();
-  fd.append("stem", $("stem").value);
   const t0 = parseTime($("t-start").value), t1 = parseTime($("t-end").value);
   if (Number.isNaN(t0) || Number.isNaN(t1)) { showStatus("Trecho inválido: use segundos (90) ou min:seg (1:30).", true); return; }
   if (t0 !== null) fd.append("start", t0);
   if (t1 !== null) fd.append("end", t1);
-  if (part !== undefined) fd.append("part", part);
-  if (lastSource.url !== undefined) fd.append("url", lastSource.url);
-  else if (lastSource.file) fd.append("file", lastSource.file);
+  const stems = [...document.querySelectorAll("#stems input:checked")].map((c) => c.value);
+  const isMidi = mode === "file" && /\.midi?$/i.test(($("file").files[0] || {}).name || "");
+  if (!stems.length && !isMidi) { showStatus("Marque pelo menos uma variação.", true); return; }
+  fd.append("stems", stems.join(","));
+  if (mode === "url") fd.append("url", $("url").value);
+  else if ($("file").files[0]) fd.append("file", $("file").files[0]);
   $("go").disabled = true;
-  $("result").classList.add("hidden");
-  $("audio-result").pause(); $("audio-original").pause();
   showStatus("Enviando...");
   try {
-    const res = await fetch("/api/jobs", { method: "POST", body: fd });
-    const body = await res.json();
-    if (!res.ok) { finish(); showStatus(typeof body.detail === "string" ? body.detail : "Pedido inválido.", true); return; }
-    poll(body.id);
-  } catch (e) {
-    finish(); showStatus("Não consegui falar com o servidor.", true);
-  }
-}
-
-$("form").addEventListener("submit", (ev) => {
-  ev.preventDefault();
-  lastSource = mode === "url" ? { url: $("url").value } : { file: $("file").files[0] };
-  submitJob();
+    const b = await getJSON("/api/batches", { method: "POST", body: fd });
+    $("status").className = "hidden";
+    openBatch(b.id, b.jobs);
+  } catch (e) { showStatus(e.message || "Não consegui falar com o servidor.", true); }
+  $("go").disabled = false;
 });
 
-async function sendFeedback(rating, tag) {
-  const res = await fetch(`/api/jobs/${currentJob}/feedback`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rating, tag }),
-  });
-  if (res.ok) {
-    const info = await res.json();
-    $("rate").classList.add("hidden");
-    $("rate-msg").textContent = "Avaliação salva. Obrigado! Ela ajuda a sugerir o melhor som nas próximas." + (info.edit_recorded ? " Suas edições também foram registradas como comparação." : "");
-    loadState();
-  } else {
-    const body = await res.json().catch(() => ({}));
-    $("rate-msg").textContent = typeof body.detail === "string" ? body.detail : "Não consegui salvar a avaliação.";
+function openBatch(id, jobs) {
+  batchId = id;
+  try { localStorage.setItem("coil.batch", id); } catch (e) { /* sem storage */ }
+  history.replaceState(null, "", "?lote=" + id);
+  cards.clear();
+  $("grid").textContent = "";
+  $("batch").classList.remove("hidden");
+  render(jobs);
+  poll();
+}
+
+async function poll() {
+  clearTimeout(timer);
+  let b;
+  try { b = await getJSON(`/api/batches/${batchId}`); }
+  catch (e) {
+    // lote some quando o servidor reinicia (jobs ficam só em memória)
+    $("batch").classList.add("hidden");
+    showStatus("Este lote não existe mais (o servidor reiniciou?). Gere de novo.", true);
+    return;
+  }
+  render(b.jobs);
+  if (b.jobs.some((j) => j.status === "queued" || j.status === "running")) timer = setTimeout(poll, 1000);
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function render(jobs) {
+  if (jobs.length) $("batch-src").textContent = "· " + jobs[0].source;
+  for (const j of jobs) {
+    let c = cards.get(j.id);
+    if (!c) { c = { el: el("article", "var"), key: "" }; cards.set(j.id, c); $("grid").appendChild(c.el); }
+    const key = j.status + "|" + (j.status === "running" || j.status === "queued" ? j.message : "");
+    if (c.key === key) continue;  // nada mudou: não recria (preserva o player tocando)
+    c.key = key;
+    fill(c.el, j);
   }
 }
-$("good").onclick = () => sendFeedback(1, null);
-$("bad").onclick = () => $("tag-box").classList.remove("hidden");
-$("save-bad").onclick = () => sendFeedback(-1, $("tag").value);
 
-async function loadState() {
-  try {
-    const st = await (await fetch("/api/state")).json();
-    const sel = $("tag");
-    if (!sel.options.length) st.tags.forEach((t) => sel.add(new Option(t, t)));
-    if (st.ratings > 0) {
-      $("stem").value = st.suggestion;
-      $("hint").textContent = `Sugestão pelo histórico (${st.ratings} avaliação(ões)): ${st.suggestion}.`;
-      $("hint").classList.remove("hidden");
-    }
-    LiveKeyboard.configure({ peakDb: st.peak_db, minHz: st.profile && st.profile.min_hz, maxHz: st.profile && st.profile.max_hz });
-    if (st.profile) {
-      $("cal-current").textContent = `${st.profile.min_hz}–${st.profile.max_hz} Hz`;
-      $("min-hz").value = st.profile.min_hz;
-      $("max-hz").value = st.profile.max_hz;
-    }
-  } catch (e) { /* sem estado: a página segue com os padrões */ }
+function badge(text, cls) { return el("span", "badge " + (cls || ""), text); }
+
+function fill(card, j) {
+  card.textContent = "";
+  const h = el("h3", "", j.variant || j.stem);
+  if (ratings > 0 && suggestion && j.stem === suggestion && j.status !== "error") h.appendChild(badge("★ sugerida", "star"));
+  card.appendChild(h);
+  if (j.status === "queued" || j.status === "running") {
+    const p = el("p", "muted");
+    p.appendChild(el("span", "spin"));
+    p.appendChild(document.createTextNode(j.status === "queued" ? "Na fila..." : j.message));
+    card.appendChild(p);
+    return;
+  }
+  if (j.status === "error") { card.appendChild(el("p", "error", "Erro: " + j.error)); return; }
+  const r = j.result;
+  const a = el("audio"); a.controls = true; a.preload = "none";
+  a.src = `/api/jobs/${j.id}/audio/result`;
+  a.addEventListener("play", () => { for (const o of document.querySelectorAll("audio")) if (o !== a) o.pause(); });
+  card.appendChild(a);
+  const preset = ((r.fidelity || {}).presets || []).find((p) => p.id === r.style);
+  const info = [`${r.segments} trechos`, `${r.min_hz}–${r.max_hz} Hz`];
+  if (preset && preset.scores) info.push(`parecença ${Math.round(preset.scores.total * 100)}%`);
+  if (r.bpm) info.push(`${r.bpm} BPM`);
+  card.appendChild(el("p", "muted", info.join(" · ")));
+  const w = el("p", "");
+  if (r.overlap_warning) w.appendChild(badge("polifônica", "bad"));
+  if (r.range_warning || r.moved_warning) w.appendChild(badge("oitavas movidas", "bad"));
+  if (r.fast_warning) w.appendChild(badge("notas rápidas", "bad"));
+  if (!r.ok) w.appendChild(badge("pico/clipping", "bad"));
+  if (!w.childNodes.length) w.appendChild(badge("sem avisos", "good"));
+  card.appendChild(w);
+  const rate = el("div", "actions");
+  const good = el("button", "", "👍 Soou bem"), bad = el("button", "", "👎 Soou ruim");
+  rate.append(good, bad);
+  card.appendChild(rate);
+  const tagBox = el("div", "hidden");
+  const sel = el("select"); sel.setAttribute("aria-label", "O que deu errado?");
+  tags.forEach((t) => sel.add(new Option(t, t)));
+  const save = el("button", "", "Salvar avaliação"); save.style.marginTop = "6px"; save.style.width = "100%";
+  tagBox.append(sel, save);
+  card.appendChild(tagBox);
+  const msg = el("p", "muted"); msg.style.margin = "0";
+  card.appendChild(msg);
+  const send = async (rating, tag) => {
+    try {
+      await postJSON(`/api/jobs/${j.id}/feedback`, { rating, tag });
+      rate.classList.add("hidden"); tagBox.classList.add("hidden");
+      msg.textContent = rating === 1 ? "👍 Avaliada: soou bem." : "👎 Avaliada: soou ruim.";
+      ratings += 1; refreshState();
+    } catch (e) { msg.textContent = e.message; }
+  };
+  good.onclick = () => send(1, null);
+  bad.onclick = () => tagBox.classList.remove("hidden");
+  save.onclick = () => send(-1, sel.value);
+  const open = el("a", "btn", "Abrir no editor →"); open.href = `/faixa/${j.id}`;
+  const act = el("div", "actions"); act.appendChild(open);
+  card.appendChild(act);
 }
 
-async function loadTones() {
-  try {
-    const info = await (await fetch("/api/calibrate")).json();
-    const t = $("tone-table");
-    t.textContent = "";
-    info.tones.forEach((x) => {
-      const tr = t.insertRow();
-      tr.insertCell().textContent = `${x.start.toFixed(1)} s`;
-      tr.insertCell().textContent = `${x.hz} Hz`;
-    });
-  } catch (e) { /* tabela é só apoio */ }
+async function refreshState() {
+  const st = await loadState();
+  if (!st) return;
+  tags = st.tags; suggestion = st.suggestion; ratings = st.ratings;
 }
 
-$("save-cal").onclick = async () => {
-  const res = await fetch("/api/profile", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ min_hz: parseFloat($("min-hz").value), max_hz: parseFloat($("max-hz").value) }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (res.ok) { $("cal-msg").textContent = "Calibragem salva."; loadState(); }
-  else $("cal-msg").textContent = typeof body.detail === "string" ? body.detail : "Valores inválidos.";
-};
-
-$("cal").addEventListener("toggle", () => { if ($("cal").open) loadTones(); });
-loadState();
+(async () => {
+  await refreshState();
+  let id = new URLSearchParams(location.search).get("lote");
+  if (!id) { try { id = localStorage.getItem("coil.batch"); } catch (e) { /* sem storage */ } }
+  if (!id) return;
+  try {
+    const b = await getJSON(`/api/batches/${id}`);
+    openBatch(b.id, b.jobs);
+  } catch (e) { /* lote antigo: começa vazio */ history.replaceState(null, "", "/"); }
+})();
 </script>
 </body>
 </html>
