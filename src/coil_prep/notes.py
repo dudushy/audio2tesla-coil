@@ -32,13 +32,17 @@ def pitch_range(min_hz: float, max_hz: float) -> tuple[int, int]:
     return low, high
 
 
-def fold_pitch(pitch: int, low: int, high: int) -> int:
-    """Leva a nota para dentro de [low, high] só por oitavas (a faixa precisa ter >= 1 oitava)."""
+def fold_pitch(pitch: int, low: int, high: int, allowed: tuple[int, ...] = ()) -> int:
+    """Leva a nota para dentro de [low, high] só por oitavas (a faixa precisa ter >= 1 oitava).
+
+    Com `allowed` (notas ouvidas na calibragem), prefere a oitava ouvida mais próxima.
+    """
     while pitch < low:
         pitch += 12
     while pitch > high:
         pitch -= 12
-    return pitch
+    same = [p for p in allowed if (p - pitch) % 12 == 0 and low <= p <= high]
+    return min(same, key=lambda p: abs(p - pitch)) if same else pitch
 
 
 def from_segments(segments: list[tuple]) -> list[EditNote]:

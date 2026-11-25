@@ -557,7 +557,9 @@ OCTAVE_COST = 1.0  # custo de tirar uma nota da oitava original (1 por oitava) n
 LEAP_COST = 12.0  # custo de mudar o deslocamento de oitava entre duas notas (= 1 oitava de salto)
 
 
-def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tuple]:
+def contour_fold(
+    segments: list[tuple], min_hz: float, max_hz: float, allowed: tuple[int, ...] = ()
+) -> list[tuple]:
     """Escolhe a oitava de cada nota (1 voz) para caber na faixa sem quebrar a melodia.
 
     Preserva a classe de altura. Minimiza (por programação dinâmica, ótimo exato): saltos de
@@ -566,6 +568,9 @@ def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tu
     trecho cruza a borda a frase inteira sobe/desce junto em vez de uma nota virar um salto falso.
     (A versão antiga ia nota a nota pela "oitava mais próxima da anterior": um erro se acumulava e
     35% das notas da Blue saíam uma oitava fora, mesmo com só 3% do tempo fora da faixa.)
+
+    `allowed` (notas ouvidas na calibragem): só usa oitavas em que a nota está na lista; se
+    nenhuma oitava dela foi ouvida, vale qualquer uma dentro da faixa.
     """
     if not segments:
         return []
@@ -574,7 +579,7 @@ def contour_fold(segments: list[tuple], min_hz: float, max_hz: float) -> list[tu
     options = []  # por nota: deslocamentos k (em oitavas) que cabem na faixa
     for _, _, (p, *_) in segments:
         ks = [k for k in range(-10, 11) if min_hz <= midi_to_hz(p + 12 * k) <= max_hz]
-        options.append(ks)
+        options.append([k for k in ks if p + 12 * k in allowed] or ks)
     cost = {k: OCTAVE_COST * abs(k) for k in options[0]}
     back = []
     for ks in options[1:]:

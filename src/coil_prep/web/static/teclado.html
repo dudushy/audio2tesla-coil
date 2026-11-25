@@ -28,10 +28,10 @@
     </div>
   </div>
   <p id="kb-info" class="kbinfo" aria-live="polite"></p>
-  <div class="kb" tabindex="0" role="group" aria-label="Soundpad: todas as notas de C2 a B6"></div>
+  <div class="kb" tabindex="0" role="group" aria-label="Soundpad: todas as notas de C1 a B8"></div>
   <details class="help kbhelp">
     <summary>Como usar</summary>
-    <p class="muted"><span id="kb-range"></span> Uma pad por nota (C2–B6), cada oitava com uma cor; a mais grave fica embaixo. Com <strong>Ajustar à faixa da bobina</strong> marcado, só aparecem as pads da faixa calibrada; desmarcado, aparecem todas (as de fora ficam listradas). Dá para tocar várias pads ao mesmo tempo (vários dedos ou teclas) e arrastar para deslizar; a bobina foi pensada para 1 nota por vez, então teste acordes com volume baixo. Teclado do computador: A W S E D F T G Y H U J K O L tocam a oitava marcada (borda branca) e Z/X trocam a oitava. <strong>Gravar</strong> começa a registrar na 1ª nota; <strong>Reproduzir</strong> toca a gravação. Na exportação, "Ajustar à faixa" dobra por oitavas as notas fora da faixa calibrada; sem marcar, as notas saem como tocadas. O silêncio inicial é cortado. MP3 é gerado no servidor (ffmpeg) e tem perdas; prefira WAV para a bobina. <strong>⛶</strong> deixa na tela só as pads e os botões.</p>
+    <p class="muted"><span id="kb-range"></span> Uma pad por nota (C1–B8), cada oitava com uma cor; a mais grave fica embaixo. Com <strong>Ajustar à faixa da bobina</strong> marcado, só aparecem as notas calibradas; desmarcado, aparecem todas (as de fora ficam listradas). Dá para tocar várias pads ao mesmo tempo (vários dedos ou teclas) e arrastar para deslizar; a bobina foi pensada para 1 nota por vez, então teste acordes com volume baixo. Teclado do computador: A W S E D F T G Y H U J K O L tocam a oitava marcada (borda branca) e Z/X trocam a oitava. <strong>Gravar</strong> começa a registrar na 1ª nota; <strong>Reproduzir</strong> toca a gravação. Na exportação, "Ajustar à faixa" dobra por oitavas as notas fora da faixa calibrada; sem marcar, as notas saem como tocadas. O silêncio inicial é cortado. MP3 é gerado no servidor (ffmpeg) e tem perdas; prefira WAV para a bobina. <strong>⛶</strong> deixa na tela só as pads e os botões.</p>
   </details>
 </main>
 <script src="/static/common.js"></script>
@@ -39,8 +39,8 @@
 <script>
 loadState().then((st) => {
   const pr = st && st.profile;
-  LiveKeyboard.configure({ peakDb: st && st.peak_db, minHz: pr && pr.min_hz, maxHz: pr && pr.max_hz });
-  $("kb-range").textContent = pr ? `Faixa calibrada: ${pr.min_hz}–${pr.max_hz} Hz.` : "Sem calibragem: todas as pads aparecem (o export usa 100–800 Hz).";
+  LiveKeyboard.configure({ peakDb: st && st.peak_db, minHz: pr && pr.min_hz, maxHz: pr && pr.max_hz, notes: pr && pr.notes });
+  $("kb-range").textContent = pr ? `Faixa calibrada: ${pr.min_hz}–${pr.max_hz} Hz${pr.notes ? ` (${pr.notes.length} notas ouvidas)` : ""}.` : "Sem calibragem: todas as pads aparecem (o export usa 100–800 Hz).";
 });
 // Tela cheia: esconde menu e textos (classe kbfull). No iPhone não há tela cheia nativa,
 // mas o layout só com as pads e os botões funciona do mesmo jeito.

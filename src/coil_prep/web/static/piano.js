@@ -1,12 +1,12 @@
-// Soundpad: uma pad por nota (C2-B6, a mesma faixa do teclado de teslacoil.app), onda quadrada
+// Soundpad: uma pad por nota (C1-B8, as mesmas testadas na calibragem), onda quadrada
 // (OscillatorNode "square" = duty 50%) no navegador, várias pads ao mesmo tempo (multitoque). Com
-// "Ajustar à faixa" só aparecem as pads da faixa calibrada; sem ele, as de fora ficam esmaecidas.
+// "Ajustar à faixa" só aparecem as notas calibradas; sem ele, as outras ficam esmaecidas.
 // Nível = peak_db do servidor, dividido pelo nº de vozes (como a render do servidor).
 // Gravação: lista de notas {start,end,pitch}; exporta pelo servidor (/api/live/export).
 (() => {
-  const LOW = 36, HIGH = 95;  // C2..B6 (MIDI)
+  const LOW = 24, HIGH = 119;  // C1..B8 (MIDI), como COIL_LOW/COIL_HIGH do servidor
   const BLACK = new Set([1, 3, 6, 8, 10]);
-  const HUES = [215, 160, 95, 40, 350];  // uma cor por oitava (C2..C6; B6 usa a última)
+  const HUES = [270, 215, 185, 140, 90, 45, 10, 325];  // uma cor por oitava (C1..C8)
   // teclas do computador (linha A-K = C a D+1; Z/X trocam a oitava)
   const KEYS = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14 };
   const hz = (p) => 440 * 2 ** ((p - 69) / 12);
@@ -18,13 +18,14 @@
   const kb = root.querySelector(".kb"), info = root.querySelector("#kb-info");
   const $r = (id) => root.querySelector("#" + id);
   let base = 60;  // C4: oitava das teclas do computador
-  let amp = 10 ** (-8 / 20), range = null;
+  let amp = 10 ** (-8 / 20), range = null, heard = null;  // heard: notas ouvidas na calibragem
   let ctx = null;
   const inputs = new Map();  // dedo/mouse ("p<id>") ou tecla ("k<letra>") -> nota (null = fora das pads)
   const voices = new Map();  // nota soando -> [oscilador, ganho]
 
   // --- grade -----------------------------------------------------------------------------------
-  const outOfRange = (p) => range !== null && (hz(p) < range[0] || hz(p) > range[1]);
+  const outOfRange = (p) => (heard ? !heard.has(p)
+    : range !== null && (hz(p) < range[0] || hz(p) > range[1]));
   function visible() {
     const all = Array.from({ length: HIGH - LOW + 1 }, (_, i) => LOW + i);
     return $r("fit").checked ? all.filter((p) => !outOfRange(p)) : all;
@@ -69,6 +70,7 @@
       b.innerHTML = `<b>${noteName(p)}</b><small>${Math.round(f)} Hz</small>`;
       kb.appendChild(b);
     });
+    kb.classList.toggle("dense", kb.clientHeight / rows < 42);  // pad baixa: só o nome da nota
     paint();
   }
 
@@ -225,7 +227,7 @@
   }
   kb.addEventListener("contextmenu", (e) => e.preventDefault());  // toque longo não abre menu
 
-  function shift(dir) { base = Math.min(Math.max(base + 12 * dir, 36), 84); paint(); }
+  function shift(dir) { base = Math.min(Math.max(base + 12 * dir, LOW), HIGH - 11); paint(); }
   document.addEventListener("keydown", (e) => {
     if (e.target.closest && e.target.closest("input, select, textarea, button")) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -243,9 +245,10 @@
   new ResizeObserver(() => { if (colsFor(visible().length) !== cols) build(); }).observe(kb);
 
   window.LiveKeyboard = {
-    configure({ peakDb, minHz, maxHz }) {
+    configure({ peakDb, minHz, maxHz, notes: list }) {
       if (typeof peakDb === "number") amp = 10 ** (peakDb / 20);
       range = minHz && maxHz ? [minHz, maxHz] : null;
+      heard = list && list.length ? new Set(list) : null;
       build();
     },
   };

@@ -152,11 +152,22 @@ def test_calibration_roundtrip_and_validation(client, tmp_path):
     assert job["result"]["min_hz"] == 120.0 and job["result"]["max_hz"] == 1000.0
 
 
-def test_calibration_tones_are_a_wav_with_timing(client):
-    info = client.get("/api/calibrate").json()["tones"]
-    assert info[0] == {"start": 0.0, "hz": 100} and info[1]["start"] == 2.0
-    wav = client.get("/api/calibrate/tones.wav")
-    assert wav.status_code == 200 and wav.content[:4] == b"RIFF"
+def test_calibration_by_heard_notes(client, tmp_path):
+    heard = [43, 45, 48, 55, 60, 67]
+    r = client.put("/api/profile", json={"notes": heard})
+    assert r.status_code == 200, r.text
+    state = client.get("/api/state").json()
+    assert state["profile"]["notes"] == heard and state["coil_notes"] == [24, 119]
+    assert client.put("/api/profile", json={"notes": [60, 62]}).status_code == 422
+    assert client.put("/api/profile", json={}).status_code == 422
+    # exportação "ajustada": C6 (84) cai na oitava de C ouvida mais próxima, C4 (60)
+    import mido
+
+    body = {"format": "mid", "notes": [{"start": 0, "end": 0.5, "pitch": 84}]}
+    r = client.post("/api/live/export", json=body)
+    path = tmp_path / "e.mid"
+    path.write_bytes(r.content)
+    assert [m.note for m in mido.MidiFile(str(path)) if m.type == "note_on"] == [60]
 
 
 def test_favicon_is_served_and_linked(client):

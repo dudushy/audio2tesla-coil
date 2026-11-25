@@ -193,7 +193,7 @@ def process(
     segments = transpose(segments, shift)
     out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
     shifted = segments
-    segments = contour_fold(segments, min_hz, max_hz)
+    segments = contour_fold(segments, min_hz, max_hz, profile.notes if profile else ())
     moved = _moved_fraction(shifted, segments)
 
     progress("Gerando a onda quadrada...")

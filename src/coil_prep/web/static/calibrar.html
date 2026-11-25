@@ -10,45 +10,217 @@
 <body>
 <main>
   <h1>Calibrar a bobina</h1>
-  <p class="sub">Faixa atual: <strong id="cal-current">100–800 Hz (padrão)</strong>. Toque os tons com o volume <strong>BAIXO</strong> na bobina, anote quais soam como nota clara e informe o menor e o maior Hz.</p>
-  <section class="card">
-    <audio id="audio-tones" controls preload="none" src="/api/calibrate/tones.wav"></audio>
-    <table id="tone-table"></table>
+  <p class="sub">Calibragem atual: <strong id="cal-current">nenhuma (padrão: 100–800 Hz)</strong></p>
+
+  <section class="card" id="intro">
+    <p style="margin-top:0">Cada nota toca por 2 segundos e você responde se ouviu na bobina. São <strong id="total">96</strong> notas, da mais grave à mais aguda (cerca de 10 minutos, com 3 segundos de pausa entre elas). O som sai <strong>neste aparelho</strong>: use o que está ligado à bobina e comece com o volume <strong>BAIXO</strong>.</p>
+    <button class="primary" id="start" type="button">Começar do início</button>
+    <button class="primary hidden" id="resume" type="button">Continuar de onde parei</button>
+  </section>
+
+  <section class="card hidden" id="wizard" aria-live="polite">
+    <progress id="bar" value="0" max="96"></progress>
+    <p class="muted cal-sub" id="count"></p>
+    <p class="cal-note" id="note"></p>
+    <p class="muted cal-sub" id="freq"></p>
+    <p class="muted cal-sub" id="pause" style="min-height:1.5em"></p>
+    <p class="cal-q">Você ouviu essa nota na bobina?</p>
+    <div class="cal-answers">
+      <button type="button" class="yes" id="yes">✔ Sim, ouvi</button>
+      <button type="button" class="no" id="no">✘ Não ouvi</button>
+    </div>
+    <div class="toolbar">
+      <button type="button" id="again">↻ Repetir</button>
+      <button type="button" id="back">‹ Voltar</button>
+      <button type="button" id="finish">Terminar aqui</button>
+    </div>
+    <p class="muted" style="margin-bottom:0">Entre uma nota e outra há uma pausa de 3 segundos. Se a bobina esquentar, cheirar a queimado, fizer som estranho ou a luz da fonte apagar, desligue da tomada. Atalhos: S = sim, N = não, R = repetir. "Terminar aqui" é para quando daqui para cima não sai mais som: as notas sem resposta contam como não ouvidas.</p>
+  </section>
+
+  <section class="card" id="review">
+    <h2>Notas ouvidas <span class="muted" id="heard-info"></span></h2>
+    <p class="muted">Verde = ouvida. Toque numa nota para ouvir de novo e trocar a resposta.</p>
+    <div class="cal-grid" id="grid"></div>
+    <button class="primary" id="save" type="button" disabled>Salvar calibragem</button>
+    <p id="msg" class="muted" aria-live="polite"></p>
+  </section>
+
+  <details class="card">
+    <summary>Informar a faixa manualmente (Hz)</summary>
     <div class="row">
       <div><label for="min-hz">Menor Hz</label><input id="min-hz" type="number" min="1" step="any" inputmode="decimal"></div>
       <div><label for="max-hz">Maior Hz</label><input id="max-hz" type="number" min="1" step="any" inputmode="decimal"></div>
     </div>
-    <button class="primary" id="save-cal" type="button">Salvar calibragem</button>
-    <p id="cal-msg" class="muted"></p>
-  </section>
-  <p class="muted">Dica: o <a href="/teclado">Teclado</a> também serve para achar o limite: toque notas subindo e descendo e veja onde a bobina deixa de soar clara.</p>
+    <button class="primary" id="save-manual" type="button">Salvar faixa</button>
+    <p id="manual-msg" class="muted"></p>
+  </details>
 </main>
 <script src="/static/common.js"></script>
 <script>
+const SECONDS = 2, REST = 3, KEY = "coil.calibration";  // REST: descanso da bobina entre notas (s)
+const hz = (p) => 440 * 2 ** ((p - 69) / 12);
+let low = 24, high = 119, amp = 10 ** (-8 / 20);
+let answers = {};  // nota -> true (ouvida) / false
+let current = null, ctx = null, tone = null;
+let quietAt = 0, waiting = null;  // quando o último som acaba (ms) e a contagem da pausa
+
+function stopTone() {
+  clearTimeout(waiting); waiting = null;
+  if (!tone) return;
+  quietAt = Math.min(quietAt, performance.now());  // cortado antes do fim: a pausa conta daqui
+  const [o, g] = tone, t = ctx.currentTime;
+  g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, 0.002); o.stop(t + 0.03);
+  tone = null;
+}
+// toca depois de REST s de silêncio; até lá não dá para responder sobre a nota
+function play(p) {
+  ctx = ctx || new AudioContext(); ctx.resume();  // precisa ser dentro do clique
+  stopTone();
+  const tick = () => {
+    const left = quietAt + REST * 1000 - performance.now();
+    if (left > 0) {
+      ready(false, `Pausa para a bobina descansar… ${Math.ceil(left / 1000)} s`);
+      waiting = setTimeout(tick, left % 1000 || 1000);
+    } else { waiting = null; sound(p); ready(true, ""); }
+  };
+  tick();
+}
+function ready(on, text) {
+  $("yes").disabled = $("no").disabled = !on;
+  $("pause").textContent = text;
+}
+function sound(p) {
+  quietAt = performance.now() + (SECONDS + 0.05) * 1000;
+  const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + 0.05;
+  o.type = "square"; o.frequency.value = hz(p);
+  g.gain.value = 0;
+  g.gain.setTargetAtTime(amp, t, 0.002);
+  g.gain.setTargetAtTime(0, t + SECONDS, 0.002);
+  o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + SECONDS + 0.03);
+  tone = [o, g];
+}
+
+// rascunho só neste navegador, para continuar uma calibragem interrompida
+function saveDraft() { try { localStorage.setItem(KEY, JSON.stringify({ answers, current })); } catch (e) { /* sem storage */ } }
+function loadDraft() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
+function clearDraft() { try { localStorage.removeItem(KEY); } catch (e) { /* sem storage */ } }
+
+const heardList = () => Object.keys(answers).filter((p) => answers[p]).map(Number).sort((a, b) => a - b);
+
+function paint() {
+  for (const b of $("grid").children) {
+    const p = +b.dataset.p;
+    b.className = answers[p] === true ? "yes" : answers[p] === false ? "no" : "";
+    if (p === current) b.classList.add("cur");
+    b.setAttribute("aria-label", `${noteName(p)}: ${answers[p] === true ? "ouvida" : answers[p] === false ? "não ouvida" : "sem resposta"}`);
+  }
+  const heard = heardList();
+  $("heard-info").textContent = heard.length ? `· ${heard.length} (${noteName(heard[0])} a ${noteName(heard[heard.length - 1])})` : "";
+  $("save").disabled = !heard.length;
+}
+
+function show(p) {
+  current = p;
+  $("wizard").classList.remove("hidden");
+  $("intro").classList.add("hidden");
+  $("note").textContent = noteName(p);
+  $("freq").textContent = `${hz(p).toFixed(1)} Hz`;
+  $("count").textContent = `Nota ${p - low + 1} de ${high - low + 1}`;
+  $("bar").value = p - low;
+  $("back").disabled = p === low;
+  $("msg").textContent = "";
+  paint(); play(p); saveDraft();
+}
+function finish() {
+  stopTone();
+  for (let p = low; p <= high; p++) if (!(p in answers)) answers[p] = false;
+  current = null;
+  $("wizard").classList.add("hidden");
+  $("intro").classList.remove("hidden");
+  $("resume").classList.add("hidden");
+  paint(); saveDraft();
+  $("msg").textContent = "Confira as notas e salve a calibragem.";
+  $("review").scrollIntoView({ behavior: "smooth" });
+}
+function answer(heard) {
+  if (current === null || waiting !== null) return;
+  stopTone();
+  answers[current] = heard;
+  if (current >= high) finish(); else show(current + 1);
+}
+
+$("yes").onclick = () => answer(true);
+$("no").onclick = () => answer(false);
+$("again").onclick = () => play(current);
+$("back").onclick = () => show(current - 1);
+$("finish").onclick = finish;
+$("start").onclick = () => { answers = {}; show(low); };
+document.addEventListener("keydown", (e) => {
+  if (current === null || e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+  if (e.target.closest && e.target.closest("input")) return;
+  const k = e.key.toLowerCase();
+  if (k === "s") answer(true); else if (k === "n") answer(false); else if (k === "r") play(current);
+});
+
+function buildGrid() {
+  $("grid").textContent = "";
+  for (let p = low; p <= high; p++) {
+    const b = document.createElement("button");
+    b.type = "button"; b.dataset.p = p; b.textContent = noteName(p);
+    b.onclick = () => {
+      if (current !== null) { show(p); $("wizard").scrollIntoView({ behavior: "smooth" }); return; }
+      // revisão: 1º toque numa nota sem resposta marca como ouvida; depois alterna
+      answers[p] = !answers[p];
+      play(p); paint(); saveDraft();
+    };
+    $("grid").appendChild(b);
+  }
+  paint();
+}
+
+function showProfile(pr) {
+  if (!pr) return;
+  $("cal-current").textContent = `${pr.min_hz}–${pr.max_hz} Hz` + (pr.notes ? ` (${pr.notes.length} notas ouvidas)` : " (faixa manual)");
+  $("min-hz").value = pr.min_hz;
+  $("max-hz").value = pr.max_hz;
+}
+
+$("save").onclick = async () => {
+  try {
+    showProfile(await putJSON("/api/profile", { notes: heardList() }));
+    clearDraft();
+    $("msg").textContent = "Calibragem salva. O Soundpad e as próximas músicas usam essas notas.";
+  } catch (e) { $("msg").textContent = e.message; }
+};
+$("save-manual").onclick = async () => {
+  try {
+    showProfile(await putJSON("/api/profile", { min_hz: parseFloat($("min-hz").value), max_hz: parseFloat($("max-hz").value) }));
+    $("manual-msg").textContent = "Faixa salva.";
+  } catch (e) { $("manual-msg").textContent = e.message || "Valores inválidos."; }
+};
+
 async function init() {
   const st = await loadState();
-  if (st && st.profile) {
-    $("cal-current").textContent = `${st.profile.min_hz}–${st.profile.max_hz} Hz`;
-    $("min-hz").value = st.profile.min_hz;
-    $("max-hz").value = st.profile.max_hz;
-  }
-  try {
-    const info = await getJSON("/api/calibrate");
-    const t = $("tone-table");
-    for (const x of info.tones) {
-      const tr = t.insertRow();
-      tr.insertCell().textContent = `${x.start.toFixed(1)} s`;
-      tr.insertCell().textContent = `${x.hz} Hz`;
+  if (st) {
+    [low, high] = st.coil_notes;
+    amp = 10 ** (st.peak_db / 20);
+    showProfile(st.profile);
+    if (st.profile && st.profile.notes) {
+      for (let p = low; p <= high; p++) answers[p] = st.profile.notes.includes(p);
     }
-  } catch (e) { /* a tabela é só apoio */ }
+  }
+  $("total").textContent = high - low + 1;
+  $("bar").max = high - low + 1;
+  const draft = loadDraft();
+  if (draft && draft.answers) {
+    answers = draft.answers;
+    if (draft.current !== null) {
+      $("resume").classList.remove("hidden");
+      $("resume").onclick = () => show(draft.current);
+    }
+  }
+  buildGrid();
 }
-$("save-cal").onclick = async () => {
-  try {
-    const p = await putJSON("/api/profile", { min_hz: parseFloat($("min-hz").value), max_hz: parseFloat($("max-hz").value) });
-    $("cal-msg").textContent = "Calibragem salva.";
-    $("cal-current").textContent = `${p.min_hz}–${p.max_hz} Hz`;
-  } catch (e) { $("cal-msg").textContent = e.message || "Valores inválidos."; }
-};
 init();
 </script>
 </body>

@@ -16,19 +16,24 @@ from pydantic import BaseModel
 
 from .. import bitmidi, feedback
 from .. import notes as notes_mod
-from ..calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
+from ..calibrate import write_mono_wav
 from ..fetch import is_url
 from ..ffmpeg import FfmpegError, wav_to_mp3
 from ..midi import MIDI_EXTS, RATE, render, write_midi
 from ..pipeline import FALLBACK_RANGE, PEAK_DB, STEM_CHOICES, STYLE_CHOICES, apply_edit, restyle
-from ..profile import Profile, load_profile, save_profile
+from ..profile import (
+    COIL_HIGH,
+    COIL_LOW,
+    Profile,
+    load_profile,
+    profile_from_notes,
+    save_profile,
+)
 from .jobs import JobManager
 
 STATIC = Path(__file__).parent / "static"
 UPLOAD_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".webm", *MIDI_EXTS}
 MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB
-TONE_SECONDS, TONE_GAP = 1.5, 0.5
-TONE_PEAK_DB = -8.0  # mesmo nível da saída do app
 
 
 class FeedbackIn(BaseModel):
@@ -62,24 +67,9 @@ class LiveIn(BaseModel):
 
 
 class ProfileIn(BaseModel):
-    min_hz: float
-    max_hz: float
-
-
-def tones_wav() -> bytes:
-    import io
-    import wave
-
-    import numpy as np
-
-    samples = square_tones(DEFAULT_FREQS, TONE_SECONDS, TONE_GAP, TONE_PEAK_DB)
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
-    return buf.getvalue()
+    min_hz: float | None = None
+    max_hz: float | None = None
+    notes: list[int] | None = None  # notas ouvidas na calibragem (dispensa min/max)
 
 
 def safe_name(filename: str) -> tuple[str, str]:
@@ -87,6 +77,11 @@ def safe_name(filename: str) -> tuple[str, str]:
     path = Path(filename.replace("\\", "/")).name
     stem = re.sub(r"[^\w.-]+", "_", Path(path).stem).strip("._")[:60] or "audio"
     return stem, Path(path).suffix.lower()
+
+
+def profile_payload(p: Profile) -> dict:
+    data = {"min_hz": p.min_hz, "max_hz": p.max_hz}
+    return data | {"notes": list(p.notes)} if p.notes else data
 
 
 def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
@@ -389,12 +384,13 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     def state():
         try:
             p = load_profile(data_dir / "device.json")
-            profile = {"min_hz": p.min_hz, "max_hz": p.max_hz}
+            profile = profile_payload(p)
         except ValueError:
             profile = None
         history = feedback.load(data_dir)
         return {
             "profile": profile,
+            "coil_notes": [COIL_LOW, COIL_HIGH],  # notas do soundpad e da calibragem
             "suggestion": feedback.suggest_stem(history),
             "ratings": feedback.count_ratings(history),
             "peak_db": PEAK_DB,  # nível do teclado ao vivo = o da saída (referência Mario)
@@ -410,16 +406,16 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(422, "formato deve ser wav, mid ou mp3")
         try:
             p = load_profile(data_dir / "device.json")
-            lo_hz, hi_hz = p.min_hz, p.max_hz
+            lo_hz, hi_hz, heard = p.min_hz, p.max_hz, p.notes
         except ValueError:
-            lo_hz, hi_hz = FALLBACK_RANGE
+            (lo_hz, hi_hz), heard = FALLBACK_RANGE, ()
         # fit=False: grava as notas como tocadas (faixa larga, sem dobrar)
-        wide = (30.0, 8000.0)
+        wide = (30.0, 8000.0)  # cobre C1..B8
         low, high = notes_mod.pitch_range(lo_hz, hi_hz)
         raw = [n.model_dump() for n in body.notes]
         if body.fit:
             for n in raw:
-                n["pitch"] = notes_mod.fold_pitch(n["pitch"], low, high)
+                n["pitch"] = notes_mod.fold_pitch(n["pitch"], low, high, heard)
         try:
             notes = notes_mod.validate_poly(raw, *(wide if not body.fit else (lo_hz, hi_hz)))
         except ValueError as e:
@@ -449,25 +445,21 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="soundpad.{body.format}"'},
         )
 
-    @app.get("/api/calibrate")
-    def calibrate_info():
-        step = TONE_SECONDS + TONE_GAP
-        return {"tones": [{"start": i * step, "hz": f} for i, f in enumerate(DEFAULT_FREQS)]}
-
-    @app.get("/api/calibrate/tones.wav")
-    def calibrate_tones():
-        return Response(tones_wav(), media_type="audio/wav")
-
     @app.put("/api/profile")
     def save_profile_route(body: ProfileIn):
         try:
-            profile = Profile(body.min_hz, body.max_hz)
+            if body.notes is not None:
+                profile = profile_from_notes(body.notes)
+            elif body.min_hz is not None and body.max_hz is not None:
+                profile = Profile(body.min_hz, body.max_hz)
+            else:
+                raise ValueError("envie as notas ouvidas ou a faixa (menor e maior Hz)")
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         if profile.max_hz < 2 * profile.min_hz:
             raise HTTPException(422, "a faixa precisa ter pelo menos 1 oitava (máx >= 2x mín)")
         save_profile(profile, data_dir / "device.json")
-        return {"min_hz": profile.min_hz, "max_hz": profile.max_hz}
+        return profile_payload(profile)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
