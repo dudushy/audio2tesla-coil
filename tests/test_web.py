@@ -170,6 +170,27 @@ def test_calibration_by_heard_notes(client, tmp_path):
     assert [m.note for m in mido.MidiFile(str(path)) if m.type == "note_on"] == [60]
 
 
+def test_score_from_mutopia_becomes_a_batch(client, tmp_path, monkeypatch):
+    from coil_prep import scores
+
+    data = midi_bytes(tmp_path)
+    monkeypatch.setattr(scores, "_download", lambda url, limit: data)
+    scores._files.clear()
+    r = client.post(
+        "/api/scores/generate",
+        json={"file": "A/b/c.mid", "title": "Für Elise / teste", "part": -1},
+    )
+    assert r.status_code == 200, r.text
+    jobs = r.json()["jobs"]
+    assert [j["variant"] for j in jobs] == ["melodia principal", "trilhas automáticas"]
+    assert jobs[0]["source"].startswith("Für_Elise_teste-")
+    for j in jobs:
+        assert wait_done(client, j["id"])["status"] == "done"
+    bad = client.post("/api/scores/generate", json={"file": "http://evil/x.mid"})
+    assert bad.status_code == 422
+    assert client.get("/api/scores/featured").json()["results"]
+
+
 def test_favicon_is_served_and_linked(client):
     r = client.get("/favicon.svg")
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
@@ -373,7 +394,7 @@ def test_midi_download_and_excerpt_via_api(client, tmp_path):
 
 
 def test_pages_are_served(client):
-    for path in ("/", "/faixa/qualquer", "/teclado", "/calibrar"):
+    for path in ("/", "/faixa/qualquer", "/teclado", "/calibrar", "/partituras"):
         r = client.get(path)
         assert r.status_code == 200 and "coil-prep" in r.text, path
     assert "data-full" in client.get("/teclado").text and "Soundpad" in client.get("/teclado").text

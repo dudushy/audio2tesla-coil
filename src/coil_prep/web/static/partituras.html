@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partituras · coil-prep</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="wide">
+  <h1>Partituras</h1>
+  <p class="sub">A melodia vem direto da partitura (notas exatas, sem separar áudio) e é ajustada às notas <a href="/calibrar">calibradas</a> da bobina. Fonte: <a href="https://www.mutopiaproject.org/" target="_blank" rel="noopener noreferrer">Mutopia Project</a> (domínio público e Creative Commons).</p>
+
+  <p id="status" class="hidden" aria-live="polite"></p>
+
+  <h2>Músicas famosas</h2>
+  <div id="featured" class="grid"></div>
+
+  <h2 style="margin-top:24px">Buscar outras</h2>
+  <form id="search" class="card">
+    <div class="row">
+      <input id="q" type="search" placeholder="título ou compositor (ex.: chopin, sonata)" autocomplete="off" aria-label="Buscar partitura" style="flex:3">
+      <button type="submit">Buscar</button>
+    </div>
+    <p id="msg" class="muted" style="margin-bottom:0">Busque pelo nome original ou em inglês. Em peça com vários instrumentos, confira a trilha escolhida no editor.</p>
+  </form>
+  <div id="results" class="grid"></div>
+  <div class="row" style="margin-top:12px"><button type="button" id="prev" class="hidden">‹ Anterior</button><button type="button" id="next" class="hidden">Próxima ›</button></div>
+</main>
+<script src="/static/common.js"></script>
+<script>
+let busy = false, start = 0, query = "";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function showStatus(text, isError) {
+  const s = $("status");
+  s.className = "card" + (isError ? " error" : "");
+  s.textContent = "";
+  if (!isError) s.appendChild(el("span", "spin"));
+  s.appendChild(document.createTextNode(text));
+  s.scrollIntoView({ block: "nearest" });
+}
+
+async function generate(piece, member) {
+  if (busy) return;
+  busy = true;
+  showStatus("Baixando a partitura...");
+  try {
+    const b = await postJSON("/api/scores/generate", {
+      file: piece.file, title: member ? `${piece.title} ${member.replace(/\.midi?$/i, "")}` : piece.title,
+      member: member || null, part: piece.part === undefined ? null : piece.part,
+    });
+    location.href = "/?lote=" + b.id;
+  } catch (e) { showStatus(e.message, true); busy = false; }
+}
+
+function card(piece) {
+  const c = el("article", "var");
+  c.appendChild(el("h3", "", piece.title));
+  const info = [piece.composer, piece.opus, piece.instrument].filter(Boolean).join(" · ");
+  c.appendChild(el("p", "muted", info));
+  if (piece.license) {
+    const p = el("p", "muted"), a = el("a", "", "ver no Mutopia");
+    a.href = piece.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    p.append(piece.license + " · ", a);
+    c.appendChild(p);
+  }
+  const act = el("div", "actions"), go = el("button", "", "▶ Gerar para a bobina");
+  act.appendChild(go);
+  c.appendChild(act);
+  if (!piece.file.endsWith(".zip")) { go.onclick = () => generate(piece); return c; }
+  go.textContent = "Escolher movimento";
+  go.onclick = async () => {
+    go.disabled = true;
+    try {
+      const data = await getJSON(`/api/scores/movements?file=${encodeURIComponent(piece.file)}`);
+      act.textContent = "";
+      act.style.flexDirection = "column";
+      for (const m of data.members) {
+        const b = el("button", "", "▶ " + m.replace(/\.midi?$/i, ""));
+        b.onclick = () => generate(piece, m);
+        act.appendChild(b);
+      }
+      if (!data.members.length) act.appendChild(el("p", "muted", "Esta peça não tem MIDI."));
+    } catch (e) { showStatus(e.message, true); go.disabled = false; }
+  };
+  return c;
+}
+
+async function search(at) {
+  $("msg").textContent = "Buscando...";
+  try {
+    const data = await getJSON(`/api/scores/search?q=${encodeURIComponent(query)}&start=${at}`);
+    start = at;
+    $("results").textContent = "";
+    for (const r of data.results) $("results").appendChild(card(r));
+    $("msg").textContent = data.results.length ? "" : "Nada encontrado. Tente o nome original ou o compositor.";
+    $("prev").classList.toggle("hidden", at === 0);
+    $("next").classList.toggle("hidden", !data.has_next);
+    $("prev").onclick = () => search(at - data.page_size);
+    $("next").onclick = () => search(at + data.page_size);
+  } catch (e) { $("msg").textContent = e.message; }
+}
+$("search").onsubmit = (e) => {
+  e.preventDefault();
+  query = $("q").value.trim();
+  if (query) search(0);
+};
+window.addEventListener("pageshow", () => { busy = false; $("status").className = "hidden"; });
+getJSON("/api/scores/featured").then((d) => { for (const p of d.results) $("featured").appendChild(card(p)); })
+  .catch((e) => showStatus(e.message, true));
+</script>
+</body>
+</html>

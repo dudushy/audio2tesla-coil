@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import bitmidi, feedback
+from .. import bitmidi, feedback, scores
 from .. import notes as notes_mod
 from ..calibrate import write_mono_wav
 from ..fetch import is_url
@@ -72,6 +72,13 @@ class ProfileIn(BaseModel):
     notes: list[int] | None = None  # notas ouvidas na calibragem (dispensa min/max)
 
 
+class ScoreIn(BaseModel):
+    file: str  # caminho no Mutopia: .mid ou -mids.zip
+    title: str = ""
+    member: str | None = None  # .mid escolhido dentro do .zip
+    part: int | None = None  # trilha da melodia (peças em destaque)
+
+
 def safe_name(filename: str) -> tuple[str, str]:
     """(nome limpo, extensão minúscula): remove diretórios e caracteres fora de [\\w.-]."""
     path = Path(filename.replace("\\", "/")).name
@@ -98,6 +105,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
     app.get("/faixa/{job_id}", include_in_schema=False)(page("faixa.html"))
     app.get("/teclado", include_in_schema=False)(page("teclado.html"))
     app.get("/calibrar", include_in_schema=False)(page("calibrar.html"))
+    app.get("/partituras", include_in_schema=False)(page("partituras.html"))
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():
@@ -460,6 +468,49 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(422, "a faixa precisa ter pelo menos 1 oitava (máx >= 2x mín)")
         save_profile(profile, data_dir / "device.json")
         return profile_payload(profile)
+
+    @app.get("/api/scores/featured")
+    def scores_featured():
+        return {"results": scores.FEATURED}
+
+    @app.get("/api/scores/search")
+    def scores_search(q: str, start: int = 0):
+        try:
+            return scores.search(q, start)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui consultar o Mutopia agora") from None
+
+    @app.get("/api/scores/movements")
+    def scores_movements(file: str):
+        try:
+            return {"members": scores.movements(file)}
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui baixar a partitura agora") from None
+
+    @app.post("/api/scores/generate")
+    def scores_generate(body: ScoreIn):
+        """Baixa o .mid da partitura no Mutopia e gera a melodia (um lote, como no envio de .mid)."""
+        try:
+            data = scores.midi_bytes(body.file, body.member)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui baixar a partitura agora") from None
+        title = body.title or Path(body.member or body.file).stem
+        name, _ = safe_name(re.sub(r"[/\\.]", " ", title) + ".mid")
+        dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}.mid"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        plan = [(None, "trilhas automáticas"), (-1, "todas as trilhas")]
+        if body.part is not None:  # peça em destaque: a trilha da melodia já é conhecida
+            plan = [(body.part, "melodia principal"), plan[0]]
+        batch_id = uuid.uuid4().hex
+        made = [jobs.submit(str(dest), "mix", p, 0.0, None, batch_id, label) for p, label in plan]
+        return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
