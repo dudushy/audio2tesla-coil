@@ -11,25 +11,27 @@
 <main id="kb-box" data-full>
   <h1>Soundpad</h1>
   <p class="sub">Onda quadrada (duty 50%) no navegador, no mesmo nível do WAV gerado. Comece com o <strong>volume baixo</strong>.</p>
-  <div class="toolbar">
-    <button type="button" id="rec-btn" aria-pressed="false">⏺ Gravar</button>
-    <button type="button" id="play-btn" disabled>▶ Reproduzir</button>
-    <button type="button" id="clear-btn" disabled>Limpar</button>
-    <span id="rec-info" class="muted" aria-live="polite">Sem gravação</span>
-  </div>
-  <div class="toolbar">
-    <span class="muted">Exportar:</span>
-    <button type="button" class="exp" data-fmt="wav" disabled>WAV</button>
-    <button type="button" class="exp" data-fmt="mp3" disabled>MP3</button>
-    <button type="button" class="exp" data-fmt="mid" disabled>MIDI</button>
-    <label><input type="checkbox" id="fit" checked> Ajustar à faixa da bobina</label>
-    <button type="button" id="kb-full" class="hidden" aria-label="Tela cheia">⛶</button>
+  <div class="kbbar">
+    <div class="toolbar">
+      <button type="button" id="rec-btn" aria-pressed="false">⏺ Gravar</button>
+      <button type="button" id="play-btn" disabled>▶ Reproduzir</button>
+      <button type="button" id="clear-btn" disabled>Limpar</button>
+      <button type="button" id="kb-full" aria-pressed="false" aria-label="Tela cheia">⛶</button>
+      <span id="rec-info" class="muted" aria-live="polite">Sem gravação</span>
+    </div>
+    <div class="toolbar">
+      <span class="muted explabel">Exportar:</span>
+      <button type="button" class="exp" data-fmt="wav" disabled>WAV</button>
+      <button type="button" class="exp" data-fmt="mp3" disabled>MP3</button>
+      <button type="button" class="exp" data-fmt="mid" disabled>MIDI</button>
+      <label><input type="checkbox" id="fit" checked> Ajustar à faixa da bobina</label>
+    </div>
   </div>
   <p id="kb-info" class="kbinfo" aria-live="polite"></p>
   <div class="kb" tabindex="0" role="group" aria-label="Soundpad: todas as notas de C2 a B6"></div>
   <details class="help kbhelp">
     <summary>Como usar</summary>
-    <p class="muted"><span id="kb-range"></span> Uma pad por nota (C2–B6), cada oitava com uma cor; a mais grave fica embaixo. Pads listradas e esmaecidas estão fora da faixa calibrada e tocam mesmo assim. 1 nota por vez, como a bobina; arraste para deslizar. Teclado do computador: A W S E D F T G Y H U J K O L tocam a oitava marcada (borda branca) e Z/X trocam a oitava. <strong>Gravar</strong> começa a registrar na 1ª nota; <strong>Reproduzir</strong> toca a gravação. Na exportação, "Ajustar à faixa" dobra por oitavas as notas fora da faixa calibrada (o que a bobina de fato tocaria); sem marcar, as notas saem como tocadas. O silêncio inicial é cortado. MP3 é gerado no servidor (ffmpeg) e tem perdas; prefira WAV para a bobina.</p>
+    <p class="muted"><span id="kb-range"></span> Uma pad por nota (C2–B6), cada oitava com uma cor; a mais grave fica embaixo. Com <strong>Ajustar à faixa da bobina</strong> marcado, só aparecem as pads da faixa calibrada; desmarcado, aparecem todas (as de fora ficam listradas). Dá para tocar várias pads ao mesmo tempo (vários dedos ou teclas) e arrastar para deslizar; a bobina foi pensada para 1 nota por vez, então teste acordes com volume baixo. Teclado do computador: A W S E D F T G Y H U J K O L tocam a oitava marcada (borda branca) e Z/X trocam a oitava. <strong>Gravar</strong> começa a registrar na 1ª nota; <strong>Reproduzir</strong> toca a gravação. Na exportação, "Ajustar à faixa" dobra por oitavas as notas fora da faixa calibrada; sem marcar, as notas saem como tocadas. O silêncio inicial é cortado. MP3 é gerado no servidor (ffmpeg) e tem perdas; prefira WAV para a bobina. <strong>⛶</strong> deixa na tela só as pads e os botões.</p>
   </details>
 </main>
 <script src="/static/common.js"></script>
@@ -38,15 +40,24 @@
 loadState().then((st) => {
   const pr = st && st.profile;
   LiveKeyboard.configure({ peakDb: st && st.peak_db, minHz: pr && pr.min_hz, maxHz: pr && pr.max_hz });
-  $("kb-range").textContent = pr ? `Faixa calibrada: ${pr.min_hz}–${pr.max_hz} Hz.` : "Sem calibragem: nenhuma pad é marcada como fora da faixa (o export usa 100–800 Hz).";
+  $("kb-range").textContent = pr ? `Faixa calibrada: ${pr.min_hz}–${pr.max_hz} Hz.` : "Sem calibragem: todas as pads aparecem (o export usa 100–800 Hz).";
 });
-if (document.documentElement.requestFullscreen) {
-  $("kb-full").classList.remove("hidden");
-  $("kb-full").onclick = () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen().catch(() => {});
-  };
+// Tela cheia: esconde menu e textos (classe kbfull). No iPhone não há tela cheia nativa,
+// mas o layout só com as pads e os botões funciona do mesmo jeito.
+function setFull(on) {
+  document.body.classList.toggle("kbfull", on);
+  $("kb-full").setAttribute("aria-pressed", on);
+  $("kb-full").textContent = on ? "✕" : "⛶";
+  $("kb-full").setAttribute("aria-label", on ? "Sair da tela cheia" : "Tela cheia");
 }
+$("kb-full").onclick = () => {
+  const on = !document.body.classList.contains("kbfull");
+  setFull(on);
+  const el = document.documentElement;
+  if (on && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  else if (!on && document.fullscreenElement) document.exitFullscreen();
+};
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) setFull(false); });
 </script>
 </body>
 </html>

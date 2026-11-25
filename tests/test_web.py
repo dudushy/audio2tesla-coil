@@ -467,6 +467,46 @@ def test_live_export_midi_folds_pitch_unless_fit_off(client, tmp_path):
     assert pitches(True)[1] < 95  # 95 -> dobrado para dentro de 100-800 Hz
 
 
+def test_live_export_keeps_chords(client, tmp_path):
+    """Notas simultâneas (multitoque) saem juntas no MIDI e dentro do pico no WAV."""
+    import io
+    import wave
+
+    import mido
+    import numpy as np
+
+    chord = [{"start": 0.0, "end": 0.5, "pitch": 60}, {"start": 0.1, "end": 0.4, "pitch": 64}]
+    r = client.post("/api/live/export", json={"format": "mid", "notes": chord})
+    path = tmp_path / "chord.mid"
+    path.write_bytes(r.content)
+    msgs = [m for m in mido.MidiFile(str(path)) if m.type in ("note_on", "note_off")]
+    assert [(m.type, m.note) for m in msgs] == [
+        ("note_on", 60),
+        ("note_on", 64),
+        ("note_off", 64),
+        ("note_off", 60),
+    ]
+    r = client.post("/api/live/export", json={"format": "wav", "notes": chord})
+    with wave.open(io.BytesIO(r.content)) as w:
+        rate = w.getframerate()
+        data = np.frombuffer(w.readframes(w.getnframes()), "<i2") / 32767
+    assert abs(len(data) / rate - 0.5) < 0.01
+    assert np.abs(data).max() <= 10 ** (-8 / 20) + 1e-3
+    assert len(np.unique(np.round(np.abs(data[int(0.2 * rate) : int(0.3 * rate)]), 2))) > 1
+
+
+def test_live_export_merges_same_pitch_after_folding(client, tmp_path):
+    import mido
+
+    notes = [{"start": 0.0, "end": 0.5, "pitch": 72}, {"start": 0.2, "end": 0.6, "pitch": 96}]
+    r = client.post("/api/live/export", json={"format": "mid", "notes": notes})
+    assert r.status_code == 200, r.text
+    path = tmp_path / "fold.mid"
+    path.write_bytes(r.content)
+    on = [m.note for m in mido.MidiFile(str(path)) if m.type == "note_on"]
+    assert on == [72, 72]  # 96 dobra para 72; a anterior é cortada no início desta
+
+
 def test_live_export_rejects_bad_input(client):
     assert (
         client.post("/api/live/export", json={"format": "ogg", "notes": live_notes()}).status_code

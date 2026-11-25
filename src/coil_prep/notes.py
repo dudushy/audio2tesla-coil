@@ -1,5 +1,6 @@
 """Notas editáveis da melodia: validação, persistência em JSON e conversão para o render."""
 
+import itertools
 import json
 import math
 from dataclasses import asdict, dataclass
@@ -88,6 +89,32 @@ def validate(raw: list[dict], min_hz: float, max_hz: float) -> list[EditNote]:
             else:
                 out[-1] = EditNote(prev.id, prev.start, n.start, prev.pitch)
         out.append(n)
+    return out
+
+
+def validate_poly(raw: list[dict], min_hz: float, max_hz: float) -> list[EditNote]:
+    """Como `validate`, mas mantém notas diferentes soando juntas (acordes do soundpad).
+
+    Só notas da MESMA altura sobrepostas são cortadas (acontece ao dobrar oitavas).
+    """
+    if len(raw) > MAX_NOTES:
+        raise ValueError(f"notas demais ({len(raw)}); o máximo é {MAX_NOTES}")
+    by_pitch: dict = {}
+    for n in raw:
+        by_pitch.setdefault(n.get("pitch"), []).append({**n, "id": None})
+    out = [n for group in by_pitch.values() for n in validate(group, min_hz, max_hz)]
+    out.sort(key=lambda n: (n.start, n.pitch))
+    return [EditNote(i, n.start, n.end, n.pitch) for i, n in enumerate(out)]
+
+
+def to_chords(notes: list[EditNote]) -> list[tuple]:
+    """Notas possivelmente sobrepostas -> segmentos (início, fim, (notas soando)) sem sobreposição."""
+    edges = sorted({t for n in notes for t in (n.start, n.end)})
+    out = []
+    for a, b in itertools.pairwise(edges):
+        pitches = tuple(sorted(n.pitch for n in notes if n.start <= a and n.end >= b))
+        if pitches:
+            out.append((a, b, pitches))
     return out
 
 

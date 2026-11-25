@@ -6,7 +6,7 @@ import os
 import re
 import threading
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -403,7 +403,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
 
     @app.post("/api/live/export")
     def live_export(body: LiveIn):
-        """Exporta a gravação do soundpad (1 voz) como WAV/MID/MP3 com a mesma render do pipeline."""
+        """Exporta a gravação do soundpad (com acordes) como WAV/MID/MP3 pela render do pipeline."""
         import tempfile
 
         if body.format not in ("wav", "mid", "mp3"):
@@ -421,21 +421,21 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             for n in raw:
                 n["pitch"] = notes_mod.fold_pitch(n["pitch"], low, high)
         try:
-            notes = notes_mod.validate(raw, *(wide if not body.fit else (lo_hz, hi_hz)))
+            notes = notes_mod.validate_poly(raw, *(wide if not body.fit else (lo_hz, hi_hz)))
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         if not notes:
             raise HTTPException(422, "nenhuma nota gravada")
         t0 = notes[0].start  # corta o silêncio inicial
-        segs = [(n.start - t0, n.end - t0, (n.pitch,)) for n in notes]
+        notes = [replace(n, start=n.start - t0, end=n.end - t0) for n in notes]
         rng = (lo_hz, hi_hz) if body.fit else wide
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / f"soundpad.{body.format}"
             if body.format == "mid":
-                write_midi(out, segs)
+                write_midi(out, notes_mod.to_segments(notes))  # um evento por nota
             else:
                 wav = out if body.format == "wav" else Path(tmp) / "soundpad.wav"
-                write_mono_wav(wav, render(segs, *rng, PEAK_DB), RATE)
+                write_mono_wav(wav, render(notes_mod.to_chords(notes), *rng, PEAK_DB), RATE)
                 if body.format == "mp3":
                     try:
                         wav_to_mp3(wav, out)
