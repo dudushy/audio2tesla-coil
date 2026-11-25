@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Deno: o yt-dlp precisa de um runtime JavaScript externo para resolver os desafios do YouTube
@@ -51,4 +51,5 @@ RUN pip install --no-deps .
 ENV COIL_DATA=/data TORCH_HOME=/cache/torch XDG_CACHE_HOME=/cache
 VOLUME ["/data", "/cache"]
 EXPOSE 1337
-CMD ["uvicorn", "coil_prep.web.app:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "1337"]
+# HTTP e HTTPS na mesma porta (o microfone do navegador exige HTTPS fora do localhost)
+CMD ["python", "-m", "coil_prep.web.serve"]

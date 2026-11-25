@@ -12,6 +12,11 @@ services:
       # autenticação e baixa vídeos a pedido: use só em rede confiável. Para voltar a só-local,
       # defina COIL_BIND=127.0.0.1 (shell ou .env)
       - "${COIL_BIND:-0.0.0.0}:1337:1337"
+    environment:
+      # IP do computador na rede, para constar no certificado HTTPS (o ./start.sh preenche)
+      COIL_LAN_IP: ${COIL_LAN_IP:-}
+      # 0 = só HTTP (sem microfone ao abrir pelo IP da rede)
+      COIL_HTTPS: ${COIL_HTTPS:-1}
     volumes:
       - ./data:/data
       - coil-cache:/cache

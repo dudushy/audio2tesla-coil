@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import bitmidi, feedback, scores
+from .. import bitmidi, feedback, recording, scores
 from .. import notes as notes_mod
 from ..calibrate import write_mono_wav
 from ..fetch import is_url
@@ -34,6 +34,8 @@ from .jobs import JobManager
 
 STATIC = Path(__file__).parent / "static"
 UPLOAD_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".webm", *MIDI_EXTS}
+# formatos que gravadores de navegador/celular produzem (aceitos só como gravação)
+RECORDING_EXTS = (UPLOAD_EXTS - MIDI_EXTS) | {".mp4", ".aac", ".3gp", ".amr"}
 MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB
 
 
@@ -132,7 +134,9 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         except OSError:
             raise HTTPException(502, "não consegui consultar o BitMidi agora") from None
 
-    async def save_source(url: str, file: UploadFile | None) -> tuple[str, bool]:
+    async def save_source(
+        url: str, file: UploadFile | None, is_recording: bool = False
+    ) -> tuple[str, bool]:
         """Valida link OU arquivo e devolve (fonte, é .mid). O arquivo vai para data/input."""
         url = url.strip()
         if bool(url) == (file is not None and bool(file.filename)):
@@ -142,7 +146,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
                 raise HTTPException(422, "o link precisa começar com http:// ou https://")
             return url, False
         name, ext = safe_name(file.filename)
-        if ext not in UPLOAD_EXTS:
+        if ext not in (RECORDING_EXTS if is_recording else UPLOAD_EXTS):
             raise HTTPException(422, f"formato não suportado: {ext or '(sem extensão)'}")
         data = await file.read(MAX_UPLOAD + 1)
         if len(data) > MAX_UPLOAD:
@@ -151,6 +155,13 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}{ext}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
+        if is_recording:  # vira WAV, como o áudio baixado de um link
+            try:
+                dest = recording.to_wav(dest, dest.with_name(f"{dest.stem}.rec.wav"))
+            except FfmpegError:
+                raise HTTPException(422, "não consegui ler o áudio gravado") from None
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from None
         return str(dest), ext in MIDI_EXTS
 
     def check_span(start: float, end: float | None) -> None:
@@ -180,6 +191,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         url: str = Form(""),
         start: float = Form(0.0),
         end: float | None = Form(None),
+        is_recording: bool = Form(False, alias="recording"),  # o arquivo veio do microfone
         file: UploadFile | None = File(None),  # noqa: B008
     ):
         """Gera todas as variações de uma vez: um job por stem (áudio) ou por modo de trilha (.mid)."""
@@ -187,7 +199,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         if any(s not in STEM_CHOICES for s in wanted) or (not wanted):
             raise HTTPException(422, f"stems inválidos: {stems}")
         check_span(start, end)
-        source, is_midi = await save_source(url, file)
+        source, is_midi = await save_source(url, file, is_recording)
         batch_id = uuid.uuid4().hex
         # .mid não tem stem: as variações são o modo de trilha (automático x todas misturadas)
         plan = (

@@ -10,55 +10,79 @@
 <body>
 <main class="wide">
   <h1>Gerar melodia para a bobina</h1>
-  <p class="sub">Uma ação gera todas as variações; ouça e avalie lado a lado, depois abra a melhor no editor. Comece sempre com o <strong>volume baixo</strong>.</p>
 
-  <form id="form" class="card">
-    <div class="tabs" role="group" aria-label="Fonte">
-      <button type="button" id="tab-url" aria-pressed="true">Link</button>
-      <button type="button" id="tab-file" aria-pressed="false">Arquivo</button>
-    </div>
-    <div id="box-url">
-      <label for="url">Link do vídeo (YouTube etc.)</label>
-      <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
-    </div>
-    <div id="box-file" class="hidden">
-      <label for="file">Arquivo de áudio ou .mid (até 100 MB)</label>
-      <input id="file" type="file" accept="audio/*,.mid,.midi,.opus,.webm">
-      <details id="bm" style="margin-top:8px">
-        <summary>Buscar MIDI no BitMidi</summary>
-        <div class="row">
-          <input id="bm-q" type="search" placeholder="ex.: mario" autocomplete="off" style="flex:3">
-          <button type="button" id="bm-go">Buscar</button>
-        </div>
-        <ul id="bm-list" style="padding-left:20px"></ul>
-        <div class="row"><button type="button" id="bm-prev" class="hidden">‹ Anterior</button><button type="button" id="bm-next" class="hidden">Próxima ›</button></div>
-        <p id="bm-msg" class="muted" style="margin:6px 0 0">Abra a página, baixe o .mid e selecione-o no campo acima (ou arraste-o para ele). O app não baixa os arquivos por você.</p>
-      </details>
-    </div>
-    <label id="stems-label">Variações a gerar</label>
-    <div class="checks" id="stems" role="group" aria-labelledby="stems-label">
-      <label><input type="checkbox" value="other" checked> other · melodia em sintes</label>
-      <label><input type="checkbox" value="vocals" checked> vocals · voz cantada</label>
-      <label><input type="checkbox" value="mix" checked> mix · sem separar</label>
-    </div>
-    <p class="muted" style="margin:2px 0 0">Para arquivo .mid as variações são outras: trilhas automáticas x todas as trilhas misturadas.</p>
-    <details style="margin-top:8px">
-      <summary>Trecho da música (opcional)</summary>
-      <div class="row">
-        <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
-        <input id="t-end" type="text" inputmode="decimal" placeholder="fim (ex.: 1:45)" autocomplete="off" aria-label="Fim do trecho">
+  <details id="new" open>
+    <summary id="new-sum" class="hidden">Nova geração</summary>
+    <form id="form" class="card">
+      <div class="tabs" role="group" aria-label="Fonte">
+        <button type="button" id="tab-mic" aria-pressed="false">🎤 Gravar</button>
+        <button type="button" id="tab-url" aria-pressed="true">Link</button>
+        <button type="button" id="tab-file" aria-pressed="false">Arquivo</button>
       </div>
-    </details>
-    <button class="primary" id="go" type="submit">Gerar todas as variações</button>
-    <p class="muted" style="margin-bottom:0">Baixe só conteúdo que você tem direito de usar. A 1ª separação (Demucs, CPU) leva alguns minutos; as variações entram numa fila e cada uma aparece abaixo assim que fica pronta.</p>
-  </form>
+
+      <div id="box-mic" class="hidden">
+        <div class="checks" role="radiogroup" aria-label="O que você vai gravar">
+          <label><input type="radio" name="kind" value="hum" checked> Cantarolar / assobiar</label>
+          <label><input type="radio" name="kind" value="music"> Música tocando</label>
+        </div>
+        <div id="mic-live">
+          <button type="button" id="mic-btn" class="rec">⏺ Gravar</button>
+          <div class="meter" aria-hidden="true"><span id="mic-level"></span></div>
+        </div>
+        <div id="mic-fallback" class="hidden">
+          <p class="hidden" id="mic-secure"><a id="mic-https" href="#">Abrir a versão segura (https) para gravar aqui na página</a></p>
+          <label for="mic-file">Gravar com o aparelho ou escolher um áudio</label>
+          <input id="mic-file" type="file" accept="audio/*" capture>
+        </div>
+        <p id="mic-msg" class="muted" aria-live="polite">Uma voz só, notas firmes e pouco ruído em volta dão o melhor resultado.</p>
+        <audio id="mic-preview" class="hidden" controls></audio>
+      </div>
+      <div id="box-url">
+        <label for="url">Link do vídeo (YouTube etc.)</label>
+        <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+      </div>
+      <div id="box-file" class="hidden">
+        <label for="file">Arquivo de áudio ou .mid (até 100 MB)</label>
+        <input id="file" type="file" accept="audio/*,.mid,.midi,.opus,.webm">
+        <details id="bm" style="margin-top:8px">
+          <summary>Buscar MIDI no BitMidi</summary>
+          <div class="row">
+            <input id="bm-q" type="search" placeholder="ex.: mario" autocomplete="off" style="flex:3">
+            <button type="button" id="bm-go">Buscar</button>
+          </div>
+          <ul id="bm-list" style="padding-left:20px"></ul>
+          <div class="row"><button type="button" id="bm-prev" class="hidden">‹ Anterior</button><button type="button" id="bm-next" class="hidden">Próxima ›</button></div>
+          <p id="bm-msg" class="muted" style="margin:6px 0 0">Abra a página, baixe o .mid e selecione-o no campo acima (ou arraste-o para ele). O app não baixa os arquivos por você.</p>
+        </details>
+      </div>
+
+      <button class="primary" id="go" type="submit">Gerar</button>
+
+      <details class="opts">
+        <summary>Opções: variações e trecho</summary>
+        <label id="stems-label">Variações a gerar</label>
+        <div class="checks" id="stems" role="group" aria-labelledby="stems-label">
+          <label><input type="checkbox" value="other" checked> other · melodia em sintes</label>
+          <label><input type="checkbox" value="vocals" checked> vocals · voz cantada</label>
+          <label><input type="checkbox" value="mix" checked> mix · sem separar</label>
+        </div>
+        <p class="muted" style="margin:2px 0 0">Para arquivo .mid as variações são outras: trilhas automáticas x todas as trilhas misturadas.</p>
+        <label for="t-start">Trecho (opcional)</label>
+        <div class="row">
+          <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
+          <input id="t-end" type="text" inputmode="decimal" placeholder="fim (ex.: 1:45)" autocomplete="off" aria-label="Fim do trecho">
+        </div>
+      </details>
+      <p class="muted hint">Comece com o <strong>volume baixo</strong>. Baixe ou grave só conteúdo que você tem direito de usar. Separar instrumentos (other, vocals) leva alguns minutos.</p>
+    </form>
+  </details>
 
   <p id="status" class="hidden" aria-live="polite"></p>
 
   <section id="batch" class="hidden" aria-labelledby="batch-h">
     <h2 id="batch-h">Variações <span id="batch-src" class="muted" style="font-weight:400"></span></h2>
     <div id="grid" class="grid"></div>
-    <p class="muted">Ouça cada uma na bobina, avalie com 👍/👎 e abra a melhor no editor. As avaliações ensinam o app a sugerir o melhor som (★) nas próximas músicas.</p>
+    <p class="muted">Ouça cada uma, avalie com 👍/👎 e abra a melhor no editor. As avaliações ensinam o app a sugerir o melhor som (★).</p>
   </section>
 </main>
 <script src="/static/common.js"></script>
@@ -66,15 +90,103 @@
 let mode = "url", timer = null, batchId = null, tags = [], suggestion = null, ratings = 0;
 const cards = new Map();  // job id -> {el, status}
 
-function setMode(m) {
-  mode = m;
-  $("tab-url").setAttribute("aria-pressed", m === "url");
-  $("tab-file").setAttribute("aria-pressed", m === "file");
-  $("box-url").classList.toggle("hidden", m !== "url");
-  $("box-file").classList.toggle("hidden", m !== "file");
+const stemBoxes = () => [...document.querySelectorAll("#stems input")];
+let otherStems = null;  // variações marcadas antes de ir para a gravação
+// cantarolar é uma voz só (sem separar); música tocando segue as variações de um link
+function stemsForKind() {
+  const hum = document.querySelector("input[name=kind]:checked").value === "hum";
+  for (const c of stemBoxes()) c.checked = !hum || c.value === "mix";
 }
+function setMode(m) {
+  if (m === "mic" && mode !== "mic") { otherStems = stemBoxes().map((c) => c.checked); stemsForKind(); }
+  if (m !== "mic" && mode === "mic") { stopRecording(); stemBoxes().forEach((c, i) => { c.checked = otherStems[i]; }); }
+  mode = m;
+  for (const t of ["mic", "url", "file"]) {
+    $("tab-" + t).setAttribute("aria-pressed", m === t);
+    $("box-" + t).classList.toggle("hidden", m !== t);
+  }
+}
+$("tab-mic").onclick = () => setMode("mic");
 $("tab-url").onclick = () => setMode("url");
 $("tab-file").onclick = () => setMode("file");
+for (const r of document.querySelectorAll("input[name=kind]")) r.onchange = stemsForKind;
+
+// --- microfone ---------------------------------------------------------------------------------
+const MAX_REC = 600;  // s, como no servidor
+const canRecord = window.isSecureContext && !!navigator.mediaDevices && !!window.MediaRecorder;
+$("mic-live").classList.toggle("hidden", !canRecord);
+$("mic-fallback").classList.toggle("hidden", canRecord);
+if (location.protocol === "http:") {
+  $("mic-secure").classList.remove("hidden");
+  $("mic-https").href = "https:" + location.href.slice(5);
+}
+let recorder = null, recorded = null, recTimer = null, recCtx = null, starting = false;
+
+function setRecorded(file) {
+  recorded = file;
+  const a = $("mic-preview");
+  if (a.src) URL.revokeObjectURL(a.src);
+  a.classList.toggle("hidden", !file);
+  if (file) a.src = URL.createObjectURL(file); else a.removeAttribute("src");
+}
+function stopRecording() { if (recorder && recorder.state !== "inactive") recorder.stop(); }
+
+async function startRecording() {
+  if (starting) return;
+  starting = true;
+  const music = document.querySelector("input[name=kind]:checked").value === "music";
+  let stream;
+  try {
+    // sem os filtros de chamada: o redutor de ruído apaga notas sustentadas e instrumentos;
+    // o ganho automático só ajuda na voz (o servidor também normaliza o volume)
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: !music } });
+  } catch (e) {
+    $("mic-msg").textContent = e.name === "NotAllowedError" ? "Permita o uso do microfone no navegador e tente de novo." : "Não consegui acessar o microfone: " + e.message;
+    starting = false; return;
+  }
+  starting = false;
+  if (mode !== "mic") { stream.getTracks().forEach((t) => t.stop()); return; }
+  setRecorded(null);
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  // medidor de nível: mostra que o microfone está captando
+  recCtx = new AudioContext();
+  const an = recCtx.createAnalyser(), buf = new Uint8Array(1024), t0 = Date.now();
+  recCtx.createMediaStreamSource(stream).connect(an);
+  recTimer = setInterval(() => {
+    an.getByteTimeDomainData(buf);
+    let peak = 0;
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    $("mic-level").style.width = Math.min(100, peak / 1.28 * 1.5) + "%";
+    const s = Math.floor((Date.now() - t0) / 1000);
+    $("mic-msg").textContent = `Gravando… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    if (s >= MAX_REC) stopRecording();
+  }, 100);
+  recorder.onstop = () => {
+    clearInterval(recTimer); recCtx.close();
+    stream.getTracks().forEach((t) => t.stop());
+    $("mic-level").style.width = "0";
+    $("mic-btn").textContent = "⏺ Gravar de novo";
+    $("mic-btn").classList.remove("on");
+    $("go").disabled = false;
+    const type = recorder.mimeType || "audio/webm";
+    const ext = type.includes("mp4") ? "mp4" : type.includes("ogg") ? "ogg" : "webm";
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    if (!chunks.length) { $("mic-msg").textContent = "Nada foi gravado. Tente de novo."; return; }
+    setRecorded(new File(chunks, `gravacao-${stamp}.${ext}`, { type }));
+    $("mic-msg").textContent = "Ouça a gravação e toque em Gerar.";
+  };
+  recorder.start();
+  $("mic-btn").textContent = "⏹ Parar";
+  $("mic-btn").classList.add("on");
+  $("go").disabled = true;
+}
+$("mic-btn").onclick = () => { if (recorder && recorder.state === "recording") stopRecording(); else startRecording(); };
+$("mic-file").onchange = () => {
+  setRecorded($("mic-file").files[0] || null);
+  if (recorded) $("mic-msg").textContent = "Ouça a gravação e toque em Gerar.";
+};
 
 let bmPage = 0;
 async function bmSearch(page) {
@@ -130,7 +242,11 @@ $("form").addEventListener("submit", async (ev) => {
   const isMidi = mode === "file" && /\.midi?$/i.test(($("file").files[0] || {}).name || "");
   if (!stems.length && !isMidi) { showStatus("Marque pelo menos uma variação.", true); return; }
   fd.append("stems", stems.join(","));
-  if (mode === "url") fd.append("url", $("url").value);
+  if (mode === "mic") {
+    if (!recorded) { showStatus("Grave um áudio primeiro.", true); return; }
+    fd.append("file", recorded);
+    fd.append("recording", "true");
+  } else if (mode === "url") fd.append("url", $("url").value);
   else if ($("file").files[0]) fd.append("file", $("file").files[0]);
   $("go").disabled = true;
   showStatus("Enviando...");
@@ -149,6 +265,9 @@ function openBatch(id, jobs) {
   cards.clear();
   $("grid").textContent = "";
   $("batch").classList.remove("hidden");
+  // com resultado na tela, o formulário recolhe e as variações sobem para o topo
+  $("new-sum").classList.remove("hidden");
+  $("new").open = false;
   render(jobs);
   poll();
 }
@@ -160,6 +279,7 @@ async function poll() {
   catch (e) {
     // lote some quando o servidor reinicia (jobs ficam só em memória)
     $("batch").classList.add("hidden");
+    $("new").open = true;
     showStatus("Este lote não existe mais (o servidor reiniciou?). Gere de novo.", true);
     return;
   }

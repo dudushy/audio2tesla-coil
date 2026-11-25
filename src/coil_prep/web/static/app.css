@@ -107,6 +107,21 @@ body.kbfull .kb { min-height:0; }
 body.kbfull .kbbar { display:flex; flex-wrap:wrap; column-gap:16px; }
 body.kbfull .kbbar .toolbar { margin:2px 0; }
 body.kbfull .kbbar .toolbar:last-child { flex:1; }
+.kbopts select { min-height:36px; padding:2px 6px; }
+/* piano: fileiras de oitavas, grave embaixo; teclas posicionadas em % da fileira */
+.kb.piano { display:flex; flex-direction:column-reverse; gap:6px; }
+.kb .krow { position:relative; flex:1 1 0; min-height:0; }
+.kb .key { position:absolute; top:0; margin:0; padding:0 0 3px; min-height:0; min-width:0; touch-action:none; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; line-height:1.1; border-radius:0 0 6px 6px; }
+.kb .key b { font-size:clamp(.55rem, 1.6vmin, .9rem); pointer-events:none; }
+.kb .key small { display:none; }
+.kb .key.white { height:100%; background:#f7f7f8; color:#222; border:1px solid #555; }
+.kb .key.black { height:60%; z-index:1; background:#17171b; color:#fff; border:1px solid #000; }
+.kb .key.black b { font-size:clamp(.45rem, 1.3vmin, .75rem); }
+.kb .key.out { background-image:repeating-linear-gradient(45deg, transparent 0 5px, rgba(128,128,128,.45) 5px 7px); }
+.kb .key.off { opacity:1; cursor:default; }
+.kb .key.white.off { background:#8b8d93; color:transparent; }
+.kb .key.black.off { background:#4a4b51; color:transparent; }
+.kb .key.on { background:hsl(var(--h) 90% 62%); background-image:none; color:#111; }
 details summary::before { content:"▸"; margin-right:6px; }
 details[open] > summary::before { content:"▾"; }
 
@@ -132,3 +147,13 @@ progress { width:100%; accent-color:var(--accent); }
 .drop input { max-width:100%; font-weight:400; }
 ul.links { padding-left:20px; margin:4px 0; }
 ul.links a { display:inline-block; padding:8px 0; }
+
+/* gerar: fonte e gravação primeiro, opções recolhidas */
+#new > summary { margin-bottom:8px; }
+.opts { margin-top:8px; }
+.hint { margin-bottom:0; font-size:.9rem; }
+button.rec { width:100%; min-height:72px; font-size:1.2rem; margin-top:8px; }
+button.rec.on { border-color:var(--bad); color:var(--bad); }
+.meter { height:8px; margin:8px 0; background:var(--bg); border:1px solid var(--line); border-radius:99px; overflow:hidden; }
+.meter span { display:block; height:100%; width:0; background:var(--good); }
+code { overflow-wrap:anywhere; }

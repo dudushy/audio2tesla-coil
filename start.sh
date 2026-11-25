@@ -62,7 +62,12 @@ show_urls() {
   if docker compose port coil "$PORT" 2>/dev/null | grep -q '^127\.'; then
     echo "  Rede local:           desativada (COIL_BIND=127.0.0.1)"
   elif [ -n "$ip" ]; then
-    echo "  Outros aparelhos:     http://$ip:$PORT"
+    if [ "${COIL_HTTPS:-1}" = 0 ]; then
+      echo "  Outros aparelhos:     http://$ip:$PORT"
+    else
+      echo "  Outros aparelhos:     https://$ip:$PORT"
+      echo "    (na 1ª vez o navegador avisa do certificado: toque em Avançado > Continuar)"
+    fi
     if wsl_mirrored && ! firewall_ok; then
       echo
       echo "  AVISO: o firewall do WSL ainda bloqueia a porta $PORT para a rede."
@@ -78,7 +83,7 @@ case "${1:-}" in
   --ip) show_urls ;;
   --liberar-firewall) allow_firewall && show_urls ;;
   "")
-    docker compose up -d --build
+    COIL_LAN_IP=${COIL_LAN_IP:-$(lan_ip || true)} docker compose up -d --build
     show_urls
     echo "  Logs: docker compose logs -f    Parar: docker compose down"
     ;;
