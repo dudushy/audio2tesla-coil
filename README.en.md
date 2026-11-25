@@ -21,13 +21,15 @@ git clone https://github.com/dudushy/audio2tesla-coil && cd audio2tesla-coil
 docker compose up --build
 ```
 
+Or run `./start.sh` (Linux, macOS, WSL): it starts the app in the background and **prints the address to copy** to other devices on the network. `./start.sh --ip` only prints the addresses.
+
 Open **http://localhost:1337** (or `http://<laptop-IP>:1337` from another device on the LAN) in the browser of the laptop connected to the coil, paste a link or upload a file (audio or `.mid`, up to 100 MB), pick the stem (`other` default, `vocals`, or `mix`), hit **Generate**, listen to the result and the original, and download the WAV. Audio plays **in the browser**, so it comes out of the laptop's headphone jack, the same one wired to the coil. **Start with the volume LOW.**
 
 - First run downloads the Demucs weights; separation runs on **CPU** (a few minutes per song) and is cached.
 - Data lives in `./data` (git-ignored); model weights live in a Docker volume.
 - Without calibration the app uses 100-800 Hz. Use **Calibrar a bobina** on the page: play the test tones (volume LOW), note which sound clear, save min/max Hz (at least 1 octave). Stored in `data/device.json`.
 - Rate each result (👍/👎 + reason) after trying it on the coil; ratings go to `data/feedback.jsonl` and the app suggests the stem with the best average.
-- Port **1337** is published on `0.0.0.0` (LAN). The API has no authentication and downloads videos on request: trusted networks only; use `COIL_BIND=127.0.0.1` for local-only. The new **Soundpad** page (`/teclado`) is a full-screen grid of all notes (one pad per note, one colour per octave) with record/playback and WAV/MP3/MIDI export.
+- Port **1337** is published on `0.0.0.0` (LAN). The API has no authentication and downloads videos on request: trusted networks only; use `COIL_BIND=127.0.0.1` for local-only. On Windows with WSL in `mirrored` networking mode, the WSL firewall blocks other devices: run `./start.sh --liberar-firewall` once (asks for Windows administrator rights; opens TCP 1337 only; undo with `Remove-NetFirewallHyperVRule -Name 'audio2tesla-coil-1337'`). The new **Soundpad** page (`/teclado`) is a full-screen grid of all notes (one pad per note, one colour per octave) with multi-touch chords, record/playback, WAV/MP3/MIDI export and a full-screen mode (pads and buttons only). With "fit to coil range" checked only the calibrated notes are shown.
 - Download only content you have the right to use; YouTube's terms restrict downloads outside official means. Never commit audio.
 
 ⚠️ High voltage and plasma arc: follow the manufacturer's instructions and keep the volume low.
