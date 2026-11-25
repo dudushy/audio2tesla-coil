@@ -365,7 +365,7 @@ def test_pages_are_served(client):
     for path in ("/", "/faixa/qualquer", "/teclado", "/calibrar"):
         r = client.get(path)
         assert r.status_code == 200 and "coil-prep" in r.text, path
-    assert "data-full" in client.get("/teclado").text
+    assert "data-full" in client.get("/teclado").text and "Soundpad" in client.get("/teclado").text
     assert client.get("/static/common.js").status_code == 200
 
 
@@ -416,3 +416,60 @@ def test_redo_with_other_part_joins_the_batch(client, tmp_path):
     assert wait_done(client, r.json()["id"])["status"] == "done"
     assert len(client.get(f"/api/batches/{batch['id']}").json()["jobs"]) == 3
     assert client.post("/api/jobs/x/part", json={"part": None}).status_code == 404
+
+
+def live_notes():
+    return [
+        {"start": 5.0, "end": 5.3, "pitch": 60},
+        {"start": 5.4, "end": 5.8, "pitch": 95},  # B6 ~1976 Hz: fora da faixa, dobra por oitava
+    ]
+
+
+@pytest.mark.parametrize("fmt,magic", [("wav", b"RIFF"), ("mid", b"MThd"), ("mp3", None)])
+def test_live_export_formats(client, fmt, magic):
+    from coil_prep.ffmpeg import FfmpegError, find_ffmpeg
+
+    if fmt == "mp3":
+        try:
+            find_ffmpeg()
+        except FfmpegError:
+            pytest.skip("sem ffmpeg")
+    r = client.post("/api/live/export", json={"format": fmt, "notes": live_notes()})
+    assert r.status_code == 200, r.text
+    assert f"soundpad.{fmt}" in r.headers["content-disposition"]
+    if magic:
+        assert r.content.startswith(magic)
+    else:
+        assert len(r.content) > 1000
+
+
+def test_live_export_wav_trims_start_and_fits_range(client):
+    import io
+    import wave
+
+    r = client.post("/api/live/export", json={"format": "wav", "notes": live_notes()})
+    with wave.open(io.BytesIO(r.content)) as w:
+        assert 0.75 < w.getnframes() / w.getframerate() < 0.85  # sem os 5 s iniciais
+
+
+def test_live_export_midi_folds_pitch_unless_fit_off(client, tmp_path):
+    import mido
+
+    def pitches(fit):
+        r = client.post(
+            "/api/live/export", json={"format": "mid", "fit": fit, "notes": live_notes()}
+        )
+        path = tmp_path / f"{fit}.mid"
+        path.write_bytes(r.content)
+        return [m.note for m in mido.MidiFile(str(path)) if m.type == "note_on"]
+
+    assert pitches(False) == [60, 95]
+    assert pitches(True)[1] < 95  # 95 -> dobrado para dentro de 100-800 Hz
+
+
+def test_live_export_rejects_bad_input(client):
+    assert (
+        client.post("/api/live/export", json={"format": "ogg", "notes": live_notes()}).status_code
+        == 422
+    )
+    assert client.post("/api/live/export", json={"format": "wav", "notes": []}).status_code == 422

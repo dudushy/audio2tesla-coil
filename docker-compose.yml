@@ -8,8 +8,10 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
         TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     ports:
-      # só no próprio notebook: a API não tem autenticação e baixa vídeos a pedido
-      - "127.0.0.1:8000:8000"
+      # LAN: 0.0.0.0 deixa qualquer aparelho da rede abrir http://<IP-do-PC>:1337. A API não tem
+      # autenticação e baixa vídeos a pedido: use só em rede confiável. Para voltar a só-local,
+      # defina COIL_BIND=127.0.0.1 (shell ou .env)
+      - "${COIL_BIND:-0.0.0.0}:1337:1337"
     volumes:
       - ./data:/data
       - coil-cache:/cache

@@ -36,11 +36,11 @@ PIP_INDEX_URL=https://seu-mirror/simple TORCH_INDEX_URL=https://seu-mirror/whl/c
 
 Com `WITH_SEPARATE=0` a opção de separar stems falha com uma mensagem clara; refaça o build com `WITH_SEPARATE=1` para ter de volta.
 
-Abra **http://localhost:8000** no navegador do notebook ligado à bobina. O app tem 4 telas, na barra de navegação:
+Abra **http://localhost:1337** no navegador do notebook ligado à bobina (ou, de outro aparelho da mesma rede, `http://<IP-do-notebook>:1337`; veja o IP com `hostname -I`). O app tem 4 telas, na barra de navegação:
 
 - **Gerar** (`/`): cole o link ou envie um arquivo (áudio ou `.mid`, até 100 MB; "Buscar MIDI no BitMidi" lista resultados do bitmidi.com, mas você baixa o `.mid` e o envia, porque o robots.txt dele proíbe `/uploads/`). Marque as **variações** (stems `other`, `vocals`, `mix`; em `.mid` são "trilhas automáticas" x "todas as trilhas") e, se quiser, um **trecho** (`1:30` ou `90`). **Uma ação gera todas**: elas entram na fila (1 por vez, o Demucs usa CPU) e cada cartão aparece lado a lado com player, avisos, parecença medida e 👍/👎. A ★ marca o stem com a melhor média no seu histórico. O lote fica aberto ao voltar da edição (`/?lote=<id>`; some se o servidor reiniciar).
 - **Faixa** (`/faixa/<id>`): abre ao clicar em "Abrir no editor". Piano roll para editar (arraste para mover, bordas para a duração, retângulo para selecionar, duplo clique/Desenhar para criar, Ctrl+C/V/D, Delete, Ctrl+Z, Espaço; "Como editar" lista tudo; no celular, pinça e toque longo), "Aplicar e ouvir", velocidade, estilo da onda, trilha do `.mid`, original, exportar WAV/MP3/MIDI e avaliação. As edições são registradas como comparação (gerado x final) em `data/feedback.jsonl`.
-- **Teclado** (`/teclado`): piano C2–B6 que toca onda quadrada direto no navegador, no mesmo nível do WAV (-8 dBFS, duty 50%). Ocupa a tela toda e se adapta à largura (1 a 5 oitavas; deite o celular para ver mais), com botão de tela cheia. Uma nota por vez; arraste para deslizar; no teclado do computador, A W S E D F T G Y H U J K O L tocam e Z/X trocam a oitava. Teclas esmaecidas estão fora da faixa calibrada.
+- **Soundpad** (`/teclado`): grade que ocupa a tela toda com uma pad por nota (C2–B6, 60 notas), uma cor por oitava (grave embaixo; no celular em pé a grade vira 6 colunas). Toca onda quadrada direto no navegador, no mesmo nível do WAV (-8 dBFS, duty 50%); pads listradas estão fora da faixa calibrada. Uma nota por vez; arraste para deslizar; no teclado do computador, A W S E D F T G Y H U J K O L tocam e Z/X trocam a oitava. **Gravar / Reproduzir** registra o que você toca e **exporta WAV, MP3 ou MIDI** pelo servidor, com a mesma render do pipeline (1 voz, -8 dBFS, silêncio inicial cortado). "Ajustar à faixa da bobina" dobra por oitavas as notas fora da faixa calibrada; desmarcado, exporta como tocado. O MP3 usa o ffmpeg do container (com perdas; para a bobina prefira WAV).
 - **Calibrar** (`/calibrar`): toque os tons (volume BAIXO), anote quais soam claros e salve o menor e o maior Hz (pelo menos 1 oitava; vai para `data/device.json`; sem calibragem vale 100–800 Hz).
 
 Avaliações (👍/👎 com motivo) ficam em `data/feedback.jsonl`; o app sugere o stem de melhor média, sem machine learning.
@@ -54,7 +54,7 @@ O áudio toca **no navegador**, então sai pela saída P2 do notebook, a mesma d
 - O 1º uso baixa os pesos do Demucs; a separação roda em **CPU** e leva alguns minutos por música. O resultado fica em cache: testar outro stem do mesmo arquivo é mais rápido.
 - Os dados ficam em `./data` (`input/`, `separated/`, `output/`; ignorados pelo git). Os pesos do Demucs ficam em um volume Docker (`coil-cache`).
 - **Faixa da bobina:** sem calibragem o app usa 100–800 Hz. Abra **Calibrar a bobina** na página, toque os tons de teste (volume BAIXO), anote quais soam como nota clara e salve o menor e o maior Hz (a faixa precisa ter pelo menos 1 oitava). Fica em `data/device.json`.
-- A porta fica só em `127.0.0.1`: a API não tem autenticação e baixa vídeos a pedido. Não a exponha na rede sem proteção.
+- **Rede local:** o compose publica a porta **1337** em `0.0.0.0`, então celulares/PCs da mesma rede acessam o app. A API não tem autenticação e baixa vídeos a pedido: use só em rede confiável e não faça port-forward no roteador. Para voltar a só-local: `COIL_BIND=127.0.0.1 docker compose up -d`. Se o firewall do host bloquear (ex.: `sudo ufw allow 1337/tcp`), libere a porta. Áudio sai no aparelho que abriu a página, não no servidor.
 
 ### Estilo da onda (timbre)
 

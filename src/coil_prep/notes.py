@@ -31,6 +31,15 @@ def pitch_range(min_hz: float, max_hz: float) -> tuple[int, int]:
     return low, high
 
 
+def fold_pitch(pitch: int, low: int, high: int) -> int:
+    """Leva a nota para dentro de [low, high] só por oitavas (a faixa precisa ter >= 1 oitava)."""
+    while pitch < low:
+        pitch += 12
+    while pitch > high:
+        pitch -= 12
+    return pitch
+
+
 def from_segments(segments: list[tuple]) -> list[EditNote]:
     """Segmentos (início, fim, (nota,)) do pipeline -> notas com id estável."""
     return [EditNote(i, float(a), float(b), int(p[0])) for i, (a, b, p) in enumerate(segments)]
