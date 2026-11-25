@@ -3,6 +3,7 @@
 // "Ajustar à faixa" só aparecem as notas calibradas; sem ele, as outras ficam esmaecidas.
 // Nível = peak_db do servidor, dividido pelo nº de vozes (como a render do servidor).
 // Gravação: lista de notas {start,end,pitch}; exporta pelo servidor (/api/live/export).
+// Duas vistas: pads (uma por nota) ou piano (fileiras de oitavas).
 (() => {
   const LOW = 24, HIGH = 119;  // C1..B8 (MIDI), como COIL_LOW/COIL_HIGH do servidor
   const BLACK = new Set([1, 3, 6, 8, 10]);
@@ -44,39 +45,94 @@
     }
     return best;
   }
-  let cols = 0;
+  const view = () => $r("view").value;  // "pads" ou "piano"
+  function makeKey(p, cls) {
+    const b = document.createElement("button");
+    b.type = "button"; b.tabIndex = -1; b.dataset.p = p;
+    b.className = cls;
+    b.style.setProperty("--h", hue(p));
+    if (outOfRange(p)) b.classList.add("out");
+    const f = hz(p);
+    b.setAttribute("aria-label", `${noteName(p)} ${Math.round(f)} Hz`);
+    b.innerHTML = `<b>${noteName(p)}</b><small>${Math.round(f)} Hz</small>`;
+    return b;
+  }
+
+  // o que define o desenho; se mudar ao redimensionar, redesenha
+  let shape = "";
+  const shapeNow = () => (view() === "piano" ? "piano" + pianoPlan().perRow : "pads" + colsFor(visible().length));
   function build() {
-    const notesShown = visible();
-    cols = colsFor(notesShown.length);
+    shape = shapeNow();
     kb.textContent = "";
+    kb.classList.toggle("piano", view() === "piano");
+    if (view() === "piano") buildPiano(); else buildPads();
+    paint();
+  }
+  function buildPads() {
+    const notesShown = visible(), cols = colsFor(notesShown.length);
     const rows = Math.ceil(notesShown.length / cols);
     kb.style.setProperty("--cols", cols);
     kb.style.setProperty("--rows", rows);
     notesShown.forEach((p, i) => {
-      const b = document.createElement("button");
-      b.type = "button"; b.tabIndex = -1; b.dataset.p = p;
-      b.className = "pad" + (BLACK.has(p % 12) ? " sharp" : "");
-      b.style.setProperty("--h", hue(p));
+      const b = makeKey(p, "pad" + (BLACK.has(p % 12) ? " sharp" : ""));
       b.style.gridColumn = (i % cols) + 1;  // todas do mesmo tamanho; sobra fica vazia em cima
       b.style.gridRow = rows - Math.floor(i / cols);  // grave embaixo
-      const f = hz(p);
-      if (outOfRange(p)) b.classList.add("out");
-      b.setAttribute("aria-label", `${noteName(p)} ${Math.round(f)} Hz`);
-      b.innerHTML = `<b>${noteName(p)}</b><small>${Math.round(f)} Hz</small>`;
       kb.appendChild(b);
     });
     kb.classList.toggle("dense", kb.clientHeight / rows < 42);  // pad baixa: só o nome da nota
-    paint();
+  }
+
+  // piano: o teclado inteiro não cabe numa linha, então é dividido em fileiras de oitavas
+  // (a mais grave embaixo), com o nº de oitavas por fileira que deixa as teclas maiores
+  function pianoPlan() {
+    const shown = visible();
+    let lo = shown.length ? shown[0] : 60, hi = shown.length ? shown[shown.length - 1] : 72;
+    if (BLACK.has(lo % 12)) lo -= 1;  // começa e termina em tecla branca
+    if (BLACK.has(hi % 12)) hi += 1;
+    const octaves = [];
+    for (let p = lo; p <= hi; p++) {
+      if (p === lo || p % 12 === 0) octaves.push([]);
+      octaves[octaves.length - 1].push(p);
+    }
+    let perRow = 1, score = 0;
+    for (let n = 1; n <= octaves.length; n++) {
+      // tecla de piano: cerca de 3,5 vezes mais alta que larga
+      const s = Math.min((kb.clientWidth / (7 * n)) * 3.5, kb.clientHeight / Math.ceil(octaves.length / n));
+      if (s > score) { score = s; perRow = n; }
+    }
+    return { octaves, perRow, shown: new Set(shown) };
+  }
+  function buildPiano() {
+    const { octaves, perRow, shown } = pianoPlan();
+    const rows = [];
+    for (let i = 0; i < octaves.length; i += perRow) rows.push(octaves.slice(i, i + perRow).flat());
+    const whites = (r) => r.filter((p) => !BLACK.has(p % 12)).length;
+    const width = 100 / Math.max(...rows.map(whites));  // mesma largura de tecla em todas as fileiras
+    for (const notesRow of rows) {  // CSS empilha de baixo para cima
+      const row = document.createElement("div");
+      row.className = "krow";
+      let n = 0;  // teclas brancas já colocadas
+      for (const p of notesRow) {
+        const black = BLACK.has(p % 12), b = makeKey(p, "key " + (black ? "black" : "white"));
+        b.style.left = (black ? n - 0.32 : n) * width + "%";
+        b.style.width = (black ? 0.64 : 1) * width + "%";
+        if (!black) n += 1;
+        // com "Ajustar à faixa", a tecla não calibrada continua no desenho, mas não toca
+        if (!shown.has(p)) { b.classList.add("off"); b.disabled = true; }
+        row.appendChild(b);
+      }
+      kb.appendChild(row);
+    }
   }
 
   function paint() {
-    for (const k of kb.children) {
+    for (const k of kb.querySelectorAll("[data-p]")) {
       const p = +k.dataset.p;
       k.classList.toggle("on", voices.has(p) || playing.has(p));
       k.classList.toggle("base", octOf(p) === octOf(base));
     }
     const on = [...voices.keys()].sort((a, b) => a - b);
-    if (!on.length) info.textContent = "Toque uma ou mais pads.";
+    if (!on.length) info.textContent = view() === "piano" ? "Toque uma ou mais teclas." : "Toque uma ou mais pads.";
     else if (on.length > 1) info.textContent = on.map(noteName).join(" · ");
     else info.textContent = `${noteName(on[0])} · ${hz(on[0]).toFixed(1)} Hz${outOfRange(on[0]) ? " · fora da faixa calibrada" : ""}`;
   }
@@ -107,9 +163,32 @@
     for (const [, g] of voices.values()) level(g, amp / voices.size, ctx.currentTime);
     paint();
   }
-  const press = (id, p) => { if (inputs.get(id) !== p) { inputs.set(id, p); sync(); } };
-  const lift = (id) => { if (inputs.delete(id)) sync(); };
-  const stopAll = () => { inputs.clear(); sync(); };
+  // toque rápido: a nota ainda soa por um tempo mínimo (caixas e receptores Bluetooth engolem
+  // sons muito curtos). A "sobra" é cortada assim que outra nota é apertada.
+  const since = new Map();  // entrada -> quando apertou a nota atual (ms)
+  const tails = new Map();  // sobra ("t<n>") -> temporizador
+  let tailId = 0;
+  function dropTails() {
+    for (const [id, timer] of tails) { clearTimeout(timer); inputs.delete(id); }
+    tails.clear();
+  }
+  function press(id, p) {
+    if (inputs.get(id) === p) return;
+    if (p !== null && tails.size) { dropTails(); sync(); }  // repetir a mesma nota rearticula
+    inputs.set(id, p); since.set(id, performance.now()); sync();
+  }
+  function lift(id) {
+    if (!inputs.has(id)) return;
+    const p = inputs.get(id), left = +$r("hold").value - (performance.now() - since.get(id));
+    inputs.delete(id); since.delete(id);
+    if (p !== null && left > 0 && ![...inputs.values()].some((q) => q !== null)) {
+      const tail = "t" + tailId++;
+      inputs.set(tail, p);
+      tails.set(tail, setTimeout(() => { tails.delete(tail); inputs.delete(tail); sync(); }, left));
+    }
+    sync();
+  }
+  const stopAll = () => { dropTails(); inputs.clear(); since.clear(); sync(); };
 
   // --- gravação e reprodução -------------------------------------------------------------------
   let recording = false, t0 = 0, notes = [];
@@ -141,6 +220,7 @@
   }
   const reset = () => { stopPlay(); notes = []; open.clear(); };
   $r("rec-btn").onclick = () => {
+    stopAll();
     if (recording) { for (const p of [...open.keys()]) recOff(p); recording = false; }
     else { reset(); recording = true; }
     refresh(); kb.focus();
@@ -204,7 +284,8 @@
   // --- entrada ---------------------------------------------------------------------------------
   const padAt = (x, y) => {
     const el = document.elementFromPoint(x, y);
-    return el && el.classList.contains("pad") && kb.contains(el) ? +el.dataset.p : null;
+    const key = el && el.closest("[data-p]");
+    return key && !key.disabled && kb.contains(key) ? +key.dataset.p : null;
   };
   // cada dedo (pointerId) segura a sua própria nota
   kb.addEventListener("pointerdown", (e) => {
@@ -237,7 +318,21 @@
   document.addEventListener("keyup", (e) => lift("k" + e.key.toLowerCase()));
   window.addEventListener("blur", stopAll);
   $r("fit").addEventListener("change", () => { stopAll(); build(); });
-  new ResizeObserver(() => { if (colsFor(visible().length) !== cols) build(); }).observe(kb);
+  // preferências deste aparelho
+  for (const id of ["view", "hold"]) {
+    const sel = $r(id);
+    try {
+      const saved = localStorage.getItem("coil.kb." + id);
+      if ([...sel.options].some((o) => o.value === saved)) sel.value = saved;
+    } catch (e) { /* sem storage */ }
+    sel.addEventListener("change", () => {
+      try { localStorage.setItem("coil.kb." + id, sel.value); } catch (e) { /* sem storage */ }
+      stopAll();
+      if (id === "view") build();
+      sel.blur(); kb.focus();
+    });
+  }
+  new ResizeObserver(() => { if (shapeNow() !== shape) build(); }).observe(kb);
 
   window.LiveKeyboard = {
     configure({ peakDb, minHz, maxHz, notes: list }) {
