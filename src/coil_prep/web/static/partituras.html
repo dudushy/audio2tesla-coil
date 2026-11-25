@@ -10,10 +10,37 @@
 <body>
 <main class="wide">
   <h1>Partituras</h1>
-  <p class="sub">A melodia vem direto da partitura (notas exatas, sem separar áudio) e é ajustada às notas <a href="/calibrar">calibradas</a> da bobina. Fonte: <a href="https://www.mutopiaproject.org/" target="_blank" rel="noopener noreferrer">Mutopia Project</a> (domínio público e Creative Commons).</p>
+  <p class="sub">A melodia vem das notas do arquivo (sem separar áudio) e é ajustada às notas <a href="/calibrate">calibradas</a> da bobina.</p>
+  <div class="tabs" role="group" aria-label="Tipo de música">
+    <button type="button" id="tab-pop" aria-pressed="true">Jogos, memes e hits</button>
+    <button type="button" id="tab-classic" aria-pressed="false">Clássicas</button>
+  </div>
 
   <p id="status" class="hidden" aria-live="polite"></p>
 
+  <section id="pop">
+    <h2>1. Buscar o MIDI</h2>
+    <form id="bm" class="card">
+      <div class="row">
+        <input id="bm-q" type="search" placeholder="ex.: zelda, sonic green hill, rickroll" autocomplete="off" aria-label="Buscar no BitMidi" style="flex:3">
+        <button type="submit">Buscar</button>
+      </div>
+      <div class="toolbar" id="chips" aria-label="Sugestões"></div>
+      <ul id="bm-list" class="links"></ul>
+      <div class="row"><button type="button" id="bm-prev" class="hidden">‹ Anterior</button><button type="button" id="bm-next" class="hidden">Próxima ›</button></div>
+      <p id="bm-msg" class="muted" aria-live="polite" style="margin-bottom:0">Resultados do BitMidi: abra um, baixe o .mid e envie no passo 2.</p>
+    </form>
+    <p class="muted">Música de jogos também em <a href="https://www.ninsheetmusic.org/" target="_blank" rel="noopener noreferrer">NinSheetMusic</a> (Nintendo, com partitura e MIDI) e <a href="https://www.vgmusic.com/" target="_blank" rel="noopener noreferrer">VGMusic</a> (vários consoles, Sega inclusive). Essas músicas têm direitos autorais: use só para fins pessoais e respeite as regras de cada site.</p>
+
+    <h2>2. Enviar o .mid</h2>
+    <label class="drop card" id="drop">
+      <strong>Toque para escolher o arquivo</strong>
+      <span class="muted">ou arraste o .mid até aqui; a geração começa na hora</span>
+      <input id="mid" type="file" accept=".mid,.midi,audio/midi">
+    </label>
+  </section>
+
+  <section id="classic" class="hidden">
   <h2>Buscar partituras</h2>
   <form id="search" class="card">
     <div class="row">
@@ -26,6 +53,8 @@
   <div class="row" style="margin-top:12px"><button type="button" id="prev" class="hidden">‹ Anterior</button><button type="button" id="next" class="hidden">Próxima ›</button></div>
   <h2 style="margin-top:24px">Músicas famosas</h2>
   <div id="featured" class="grid"></div>
+  <p class="muted">Fonte: <a href="https://www.mutopiaproject.org/" target="_blank" rel="noopener noreferrer">Mutopia Project</a> (domínio público e Creative Commons).</p>
+  </section>
 </main>
 <script src="/static/common.js"></script>
 <script>
@@ -56,7 +85,7 @@ async function generate(piece, member) {
       file: piece.file, title: member ? `${piece.title} ${member.replace(/\.midi?$/i, "")}` : piece.title,
       member: member || null, part: piece.part === undefined ? null : piece.part,
     });
-    location.href = "/?lote=" + b.id;
+    location.href = "/?batch=" + b.id;
   } catch (e) { showStatus(e.message, true); busy = false; }
 }
 
@@ -112,6 +141,69 @@ $("search").onsubmit = (e) => {
   query = $("q").value.trim();
   if (query) search(0);
 };
+function setTab(name) {
+  for (const t of ["pop", "classic"]) {
+    $(t).classList.toggle("hidden", t !== name);
+    $("tab-" + t).setAttribute("aria-pressed", t === name);
+  }
+  try { localStorage.setItem("coil.scores.tab", name); } catch (e) { /* sem storage */ }
+}
+$("tab-pop").onclick = () => setTab("pop");
+$("tab-classic").onclick = () => setTab("classic");
+try { if (localStorage.getItem("coil.scores.tab") === "classic") setTab("classic"); } catch (e) { /* sem storage */ }
+
+// jogos, memes e hits: o BitMidi só é pesquisado; quem baixa o arquivo é a pessoa
+let bmQuery = "";
+async function bmSearch(page) {
+  $("bm-msg").textContent = "Buscando...";
+  try {
+    const data = await getJSON(`/api/bitmidi/search?q=${encodeURIComponent(bmQuery)}&page=${page}`);
+    $("bm-list").textContent = "";
+    for (const r of data.results) {
+      const li = el("li"), a = el("a", "", r.name);
+      a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      li.appendChild(a); $("bm-list").appendChild(li);
+    }
+    $("bm-prev").classList.toggle("hidden", page === 0);
+    $("bm-next").classList.toggle("hidden", !data.has_next);
+    $("bm-prev").onclick = () => bmSearch(page - 1);
+    $("bm-next").onclick = () => bmSearch(page + 1);
+    $("bm-msg").textContent = data.results.length ? "Abra um resultado, baixe o .mid e envie no passo 2." : "Nada encontrado. Tente o nome em inglês.";
+  } catch (e) { $("bm-msg").textContent = e.message; }
+}
+$("bm").onsubmit = (e) => {
+  e.preventDefault();
+  bmQuery = $("bm-q").value.trim();
+  if (bmQuery) bmSearch(0);
+};
+for (const [label, q] of [["Mario", "mario"], ["Zelda", "zelda"], ["Sonic", "sonic"], ["Pokémon", "pokemon"], ["Tetris", "tetris"], ["Rickroll", "never gonna give you up"], ["Megalovania", "megalovania"], ["Nyan Cat", "nyan cat"]]) {
+  const b = el("button", "", label);
+  b.type = "button";
+  b.onclick = () => { $("bm-q").value = q; bmQuery = q; bmSearch(0); };
+  $("chips").appendChild(b);
+}
+
+async function sendMidi(file) {
+  if (!file || busy) return;
+  if (!/\.midi?$/i.test(file.name)) { showStatus("Envie um arquivo .mid ou .midi.", true); return; }
+  busy = true;
+  showStatus(`Enviando ${file.name}...`);
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const b = await getJSON("/api/batches", { method: "POST", body: fd });
+    location.href = "/?batch=" + b.id;
+  } catch (e) { showStatus(e.message, true); busy = false; }
+}
+$("mid").onchange = () => { sendMidi($("mid").files[0]); $("mid").value = ""; };
+// soltar o arquivo em qualquer ponto da página (sem isso o navegador abriria o arquivo)
+window.addEventListener("dragover", (e) => { e.preventDefault(); $("drop").classList.add("over"); });
+window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("drop").classList.remove("over"); });
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); $("drop").classList.remove("over");
+  sendMidi(e.dataTransfer.files[0]);
+});
+
 window.addEventListener("pageshow", () => { busy = false; $("status").className = "hidden"; });
 getJSON("/api/scores/featured").then((d) => { for (const p of d.results) $("featured").appendChild(card(p)); })
   .catch((e) => showStatus(e.message, true));

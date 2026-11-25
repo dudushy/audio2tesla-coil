@@ -5,7 +5,7 @@ const noteName = (p) => NOTES[p % 12] + (Math.floor(p / 12) - 1);
 
 (() => {
   const here = location.pathname;
-  const tabs = [["/", "Gerar"], ["/partituras", "Partituras"], ["/teclado", "Soundpad"], ["/calibrar", "Calibrar"]];
+  const tabs = [["/", "Gerar"], ["/scores", "Partituras"], ["/soundpad", "Soundpad"], ["/calibrate", "Calibrar"]];
   const nav = document.createElement("nav");
   nav.className = "nav";
   nav.setAttribute("aria-label", "Principal");
@@ -18,7 +18,7 @@ const noteName = (p) => NOTES[p % 12] + (Math.floor(p / 12) - 1);
     const a = document.createElement("a");
     a.className = "tab"; a.href = href; a.textContent = text;
     // a página da faixa pertence ao fluxo "Gerar"
-    if (here === href || (href === "/" && here.startsWith("/faixa/"))) a.setAttribute("aria-current", "page");
+    if (here === href || (href === "/" && here.startsWith("/track/"))) a.setAttribute("aria-current", "page");
     inner.appendChild(a);
   }
   nav.appendChild(inner);

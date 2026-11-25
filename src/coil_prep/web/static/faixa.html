@@ -126,7 +126,7 @@ async function poll() {
   try {
     job = await getJSON(`/api/jobs/${jobId}`);
   } catch (e) { showStatus(e.message === "job não encontrado" ? "Faixa não encontrada (o servidor reiniciou?). Volte e gere de novo." : "Perdi a conexão com o servidor.", true); return; }
-  if (job.batch) $("back").href = "/?lote=" + job.batch;
+  if (job.batch) $("back").href = "/?batch=" + job.batch;
   $("title").textContent = job.variant ? `Faixa · ${job.variant}` : "Faixa";
   document.title = `${$("title").textContent} · coil-prep`;
   if (job.status === "done") { $("status").className = "hidden"; showResult(job); return; }
@@ -258,7 +258,7 @@ $("part").onchange = async (e) => {
   const part = e.target.value === "auto" ? null : parseInt(e.target.value, 10);
   try {
     const j = await postJSON(`/api/jobs/${jobId}/part`, { part });
-    location.href = `/faixa/${j.id}`;
+    location.href = `/track/${j.id}`;
   } catch (err) { $("ed-msg").textContent = err.message; }
 };
 

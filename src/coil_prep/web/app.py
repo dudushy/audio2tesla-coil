@@ -8,9 +8,10 @@ import threading
 import uuid
 from dataclasses import asdict, replace
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -102,10 +103,21 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
 
     # páginas: gerar (+ variações), editor da faixa, teclado ao vivo e calibragem
     app.get("/", include_in_schema=False)(page("index.html"))
-    app.get("/faixa/{job_id}", include_in_schema=False)(page("faixa.html"))
-    app.get("/teclado", include_in_schema=False)(page("teclado.html"))
-    app.get("/calibrar", include_in_schema=False)(page("calibrar.html"))
-    app.get("/partituras", include_in_schema=False)(page("partituras.html"))
+    app.get("/track/{job_id}", include_in_schema=False)(page("faixa.html"))
+    app.get("/soundpad", include_in_schema=False)(page("teclado.html"))
+    app.get("/calibrate", include_in_schema=False)(page("calibrar.html"))
+    app.get("/scores", include_in_schema=False)(page("partituras.html"))
+
+    # endereços antigos (favoritos salvos) levam aos novos
+    def moved(new: str):
+        return lambda: RedirectResponse(new, status_code=308)
+
+    for old, new in (("teclado", "soundpad"), ("calibrar", "calibrate"), ("partituras", "scores")):
+        app.get(f"/{old}", include_in_schema=False)(moved(f"/{new}"))
+
+    @app.get("/faixa/{job_id}", include_in_schema=False)
+    def old_track(job_id: str):
+        return RedirectResponse(f"/track/{quote(job_id)}", status_code=308)
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():

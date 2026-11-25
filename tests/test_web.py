@@ -257,7 +257,7 @@ def test_export_mp3_and_invalid_format(client, tmp_path):
 def test_editor_static_assets_are_served(client):
     r = client.get("/static/editor.js")
     assert r.status_code == 200 and "PianoRoll" in r.text
-    assert "/static/editor.js" in client.get("/faixa/x").text
+    assert "/static/editor.js" in client.get("/track/x").text
 
 
 def read_feedback(tmp_path):
@@ -394,11 +394,28 @@ def test_midi_download_and_excerpt_via_api(client, tmp_path):
 
 
 def test_pages_are_served(client):
-    for path in ("/", "/faixa/qualquer", "/teclado", "/calibrar", "/partituras"):
+    for path in ("/", "/track/qualquer", "/soundpad", "/calibrate", "/scores"):
         r = client.get(path)
         assert r.status_code == 200 and "coil-prep" in r.text, path
-    assert "data-full" in client.get("/teclado").text and "Soundpad" in client.get("/teclado").text
+    assert (
+        "data-full" in client.get("/soundpad").text and "Soundpad" in client.get("/soundpad").text
+    )
     assert client.get("/static/common.js").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("/teclado", "/soundpad"),
+        ("/calibrar", "/calibrate"),
+        ("/partituras", "/scores"),
+        ("/faixa/abc", "/track/abc"),
+    ],
+)
+def test_old_portuguese_urls_redirect(client, old, new):
+    r = client.get(old, follow_redirects=False)
+    assert r.status_code == 308 and r.headers["location"] == new
+    assert client.get(old).status_code == 200
 
 
 def test_batch_of_midi_generates_auto_and_all_tracks(client, tmp_path):

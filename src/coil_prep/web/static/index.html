@@ -145,7 +145,7 @@ $("form").addEventListener("submit", async (ev) => {
 function openBatch(id, jobs) {
   batchId = id;
   try { localStorage.setItem("coil.batch", id); } catch (e) { /* sem storage */ }
-  history.replaceState(null, "", "?lote=" + id);
+  history.replaceState(null, "", "?batch=" + id);
   cards.clear();
   $("grid").textContent = "";
   $("batch").classList.remove("hidden");
@@ -241,7 +241,7 @@ function fill(card, j) {
   good.onclick = () => send(1, null);
   bad.onclick = () => tagBox.classList.remove("hidden");
   save.onclick = () => send(-1, sel.value);
-  const open = el("a", "btn", "Abrir no editor →"); open.href = `/faixa/${j.id}`;
+  const open = el("a", "btn", "Abrir no editor →"); open.href = `/track/${j.id}`;
   const act = el("div", "actions"); act.appendChild(open);
   card.appendChild(act);
 }
@@ -254,7 +254,7 @@ async function refreshState() {
 
 (async () => {
   await refreshState();
-  let id = new URLSearchParams(location.search).get("lote");
+  let id = new URLSearchParams(location.search).get("batch");
   if (!id) { try { id = localStorage.getItem("coil.batch"); } catch (e) { /* sem storage */ } }
   if (!id) return;
   try {
