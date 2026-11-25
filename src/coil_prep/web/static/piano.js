@@ -52,17 +52,12 @@
     const rows = Math.ceil(notesShown.length / cols);
     kb.style.setProperty("--cols", cols);
     kb.style.setProperty("--rows", rows);
-    // a linha de cima, se incompleta, divide a largura toda entre as pads que sobraram
-    const rest = notesShown.length % cols, topStart = notesShown.length - rest;
     notesShown.forEach((p, i) => {
       const b = document.createElement("button");
       b.type = "button"; b.tabIndex = -1; b.dataset.p = p;
       b.className = "pad" + (BLACK.has(p % 12) ? " sharp" : "");
       b.style.setProperty("--h", hue(p));
-      if (rest && i >= topStart) {
-        const k = i - topStart, edge = (n) => Math.round(n * cols / rest) + 1;
-        b.style.gridColumn = `${edge(k)} / ${edge(k + 1)}`;
-      } else b.style.gridColumn = (i % cols) + 1;
+      b.style.gridColumn = (i % cols) + 1;  // todas do mesmo tamanho; sobra fica vazia em cima
       b.style.gridRow = rows - Math.floor(i / cols);  // grave embaixo
       const f = hz(p);
       if (outOfRange(p)) b.classList.add("out");
