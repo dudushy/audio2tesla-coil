@@ -50,5 +50,5 @@ RUN pip install --no-deps .
 # dados (entrada, stems, saída, device.json) e cache dos pesos do Demucs ficam em volumes
 ENV COIL_DATA=/data TORCH_HOME=/cache/torch XDG_CACHE_HOME=/cache
 VOLUME ["/data", "/cache"]
-EXPOSE 8000
-CMD ["uvicorn", "coil_prep.web.app:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 1337
+CMD ["uvicorn", "coil_prep.web.app:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "1337"]
