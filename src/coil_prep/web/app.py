@@ -18,9 +18,9 @@ from .. import bitmidi, feedback
 from .. import notes as notes_mod
 from ..calibrate import DEFAULT_FREQS, square_tones, write_mono_wav
 from ..fetch import is_url
-from ..ffmpeg import wav_to_mp3
-from ..midi import MIDI_EXTS, RATE, render
-from ..pipeline import PEAK_DB, STEM_CHOICES, STYLE_CHOICES, apply_edit, restyle
+from ..ffmpeg import FfmpegError, wav_to_mp3
+from ..midi import MIDI_EXTS, RATE, render, write_midi
+from ..pipeline import FALLBACK_RANGE, PEAK_DB, STEM_CHOICES, STYLE_CHOICES, apply_edit, restyle
 from ..profile import Profile, load_profile, save_profile
 from .jobs import JobManager
 
@@ -53,6 +53,12 @@ class PartIn(BaseModel):
 
 class StyleIn(BaseModel):
     style: str
+
+
+class LiveIn(BaseModel):
+    format: str  # wav | mid | mp3
+    notes: list[NoteIn]
+    fit: bool = True  # True = dobra por oitavas para a faixa calibrada (o que a bobina toca)
 
 
 class ProfileIn(BaseModel):
@@ -394,6 +400,54 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             "peak_db": PEAK_DB,  # nível do teclado ao vivo = o da saída (referência Mario)
             "tags": list(feedback.TAGS),
         }
+
+    @app.post("/api/live/export")
+    def live_export(body: LiveIn):
+        """Exporta a gravação do soundpad (1 voz) como WAV/MID/MP3 com a mesma render do pipeline."""
+        import tempfile
+
+        if body.format not in ("wav", "mid", "mp3"):
+            raise HTTPException(422, "formato deve ser wav, mid ou mp3")
+        try:
+            p = load_profile(data_dir / "device.json")
+            lo_hz, hi_hz = p.min_hz, p.max_hz
+        except ValueError:
+            lo_hz, hi_hz = FALLBACK_RANGE
+        # fit=False: grava as notas como tocadas (faixa larga, sem dobrar)
+        wide = (30.0, 8000.0)
+        low, high = notes_mod.pitch_range(lo_hz, hi_hz)
+        raw = [n.model_dump() for n in body.notes]
+        if body.fit:
+            for n in raw:
+                n["pitch"] = notes_mod.fold_pitch(n["pitch"], low, high)
+        try:
+            notes = notes_mod.validate(raw, *(wide if not body.fit else (lo_hz, hi_hz)))
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        if not notes:
+            raise HTTPException(422, "nenhuma nota gravada")
+        t0 = notes[0].start  # corta o silêncio inicial
+        segs = [(n.start - t0, n.end - t0, (n.pitch,)) for n in notes]
+        rng = (lo_hz, hi_hz) if body.fit else wide
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / f"soundpad.{body.format}"
+            if body.format == "mid":
+                write_midi(out, segs)
+            else:
+                wav = out if body.format == "wav" else Path(tmp) / "soundpad.wav"
+                write_mono_wav(wav, render(segs, *rng, PEAK_DB), RATE)
+                if body.format == "mp3":
+                    try:
+                        wav_to_mp3(wav, out)
+                    except FfmpegError as e:
+                        raise HTTPException(500, str(e)) from None
+            data = out.read_bytes()
+        mime = {"wav": "audio/wav", "mid": "audio/midi", "mp3": "audio/mpeg"}[body.format]
+        return Response(
+            data,
+            media_type=mime,
+            headers={"Content-Disposition": f'attachment; filename="soundpad.{body.format}"'},
+        )
 
     @app.get("/api/calibrate")
     def calibrate_info():
