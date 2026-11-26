@@ -15,6 +15,7 @@ from .midi import (
     ALL_PARTS,
     MIDI_EXTS,
     RATE,
+    Note,
     beat_period,
     best_shift,
     clip_notes,
@@ -38,6 +39,7 @@ from .midi import (
 )
 from .profile import Profile
 from .separate import separate
+from .voice import voice_notes
 
 STEM_CHOICES = ("other", "vocals", "mix")  # "mix" = sem separação
 STYLE_CHOICES = ("auto", *fidelity.PRESETS)  # "auto" = melhor score da busca duty x gate
@@ -100,6 +102,7 @@ def process(
     style: str = "classic",
     start: float = 0.0,
     end: float | None = None,
+    voice: bool = False,
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
@@ -107,6 +110,8 @@ def process(
     as trilhas que parecem melodia (a melhor manda, as outras preenchem as pausas dela).
     `start`/`end` (s): processa só esse trecho da música (o tempo da saída começa em `start`).
     `style`: o padrão é a quadrada de 50% que a bobina já tocou bem; "auto" usa a busca de estilo.
+    `voice`: gravação de uma voz só (cantarolar, assobiar): mede a frequência exata de cada nota
+    (sem transcritor de música, sem grade rítmica e sem arredondar para o semitom).
     """
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
@@ -135,6 +140,8 @@ def process(
         original = trim_audio(original, start, end, workdir / "input")  # o que o usuário ouve
 
     origin = source_audio
+    if voice and is_midi:
+        raise ValueError("o modo voz é para gravações de áudio, não .mid")
     if stem != "mix" and not is_midi:
         progress(f"Isolando '{stem}' com Demucs (CPU, pode levar minutos na 1ª vez)...")
         origin = separate(source_audio, stem, workdir / "separated")
@@ -169,6 +176,16 @@ def process(
         # abaixo); a pontuação por amplitude serve para notas transcritas de áudio, não para
         # velocity de MIDI (raízes de violão, longas e fortes, ganhavam do riff: 29% do tempo no Blue)
         segments = skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
+    elif voice:
+        segments = voice_notes(origin)
+        notes = [Note(a, b, p[0]) for a, b, p in segments]
+        if pre or end is not None:  # tira a margem do trecho, como no áudio
+            stop = math.inf if end is None else end - start
+            segments = [
+                (max(a - pre, 0.0), min(b - pre, stop), p)
+                for a, b, p in segments
+                if min(b - pre, stop) - max(a - pre, 0.0) >= 0.03
+            ]
     else:
         notes = notes_from(origin)
         segments = lead_line(notes)
@@ -193,7 +210,8 @@ def process(
     segments = transpose(segments, shift)
     out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
     shifted = segments
-    segments = contour_fold(segments, min_hz, max_hz, profile.notes if profile else ())
+    if out_of_range or not voice:  # voz dentro da faixa: nenhuma nota sai do lugar
+        segments = contour_fold(segments, min_hz, max_hz, profile.notes if profile else ())
     moved = _moved_fraction(shifted, segments)
 
     progress("Gerando a onda quadrada...")

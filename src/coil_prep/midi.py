@@ -516,10 +516,10 @@ def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: i
 
     Só oitavas: preserva todas as classes de altura (a tonalidade). 1º critério: caber o máximo de
     tempo na faixa (o que sobra fora é dobrado depois por `contour_fold`). Entre os deslocamentos
-    que cabem (quase) o mesmo, ganha o que deixa a tessitura da melodia (meio entre os quantis
-    5% e 95% do tempo) mais perto do centro geométrico da faixa: a bobina soa mais clara no meio
-    do que nas bordas, e uma melodia em 400-930 Hz que cabe inteira em 200-465 Hz desce uma oitava.
-    Desempate final: menor |deslocamento|.
+    que cabem (quase) o mesmo, ganha o MENOR: a música fica na altura original sempre que cabe.
+    (Antes ganhava o que centrava a melodia na faixa; com uma faixa calibrada larga, isso subia uma
+    voz grave em 104 Hz duas oitavas, para o centro em ~350 Hz.) Entre empatados, fica mais perto
+    do centro geométrico da faixa.
     """
     if not segments:
         return 0
@@ -534,7 +534,7 @@ def best_shift(segments: list[tuple], min_hz: float, max_hz: float, max_shift: i
     good = [s for s in shifts if fits[s] >= max(fits.values()) - SHIFT_SLACK * total]
     middle = (_weighted_pitch(segments, 0.05) + _weighted_pitch(segments, 0.95)) / 2
     center = 69 + 12 * math.log2(math.sqrt(min_hz * max_hz) / 440)
-    return min(good, key=lambda s: (round(abs(middle + s - center), 3), abs(s)))
+    return min(good, key=lambda s: (abs(s), round(abs(middle + s - center), 3)))
 
 
 def transpose(segments: list[tuple], shift: int) -> list[tuple]:
@@ -704,7 +704,8 @@ def write_midi(path: Path, segments: list[tuple], bpm: float | None = None) -> N
     events = []
     for a, b, p in segments:
         on, off = ticks(a), max(ticks(b), ticks(a) + 1)
-        events += [(on, 1, "note_on", p[0]), (off, 0, "note_off", p[0])]
+        note = round(p[0])  # MIDI só tem semitons inteiros
+        events += [(on, 1, "note_on", note), (off, 0, "note_off", note)]
     track = mido.MidiTrack()
     track.append(mido.MetaMessage("track_name", name="Coil melody", time=0))
     track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(bpm), time=0))

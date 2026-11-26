@@ -246,6 +246,8 @@ $("form").addEventListener("submit", async (ev) => {
     if (!recorded) { showStatus("Grave um áudio primeiro.", true); return; }
     fd.append("file", recorded);
     fd.append("recording", "true");
+    // cantarolar/assobiar: uma voz só, mantém a frequência exata de cada nota
+    if (document.querySelector("input[name=kind]:checked").value === "hum") fd.append("voice", "true");
   } else if (mode === "url") fd.append("url", $("url").value);
   else if ($("file").files[0]) fd.append("file", $("file").files[0]);
   $("go").disabled = true;

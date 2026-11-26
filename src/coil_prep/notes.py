@@ -17,7 +17,15 @@ class EditNote:
     id: int
     start: float  # s
     end: float  # s
-    pitch: int  # número MIDI, já dentro da faixa da bobina
+    pitch: float  # número MIDI (fracionário = afinação exata da voz), já dentro da faixa
+
+
+def as_pitch(value) -> int | float:
+    """Altura MIDI: inteira quando é nota exata; senão com 2 casas (centésimos de semitom)."""
+    p = float(value)
+    if not math.isfinite(p):
+        raise ValueError("altura inválida")
+    return int(p) if p.is_integer() else round(p, 2)
 
 
 def pitch_range(min_hz: float, max_hz: float) -> tuple[int, int]:
@@ -47,7 +55,7 @@ def fold_pitch(pitch: int, low: int, high: int, allowed: tuple[int, ...] = ()) -
 
 def from_segments(segments: list[tuple]) -> list[EditNote]:
     """Segmentos (início, fim, (nota,)) do pipeline -> notas com id estável."""
-    return [EditNote(i, float(a), float(b), int(p[0])) for i, (a, b, p) in enumerate(segments)]
+    return [EditNote(i, float(a), float(b), as_pitch(p[0])) for i, (a, b, p) in enumerate(segments)]
 
 
 def to_segments(notes: list[EditNote]) -> list[tuple]:
@@ -69,7 +77,7 @@ def validate(raw: list[dict], min_hz: float, max_hz: float) -> list[EditNote]:
     seen = set()
     for n in raw:
         try:
-            start, end, pitch = float(n["start"]), float(n["end"]), int(n["pitch"])
+            start, end, pitch = float(n["start"]), float(n["end"]), as_pitch(n["pitch"])
         except (KeyError, TypeError, ValueError):
             raise ValueError("nota inválida: precisa de start, end e pitch numéricos") from None
         if not (math.isfinite(start) and math.isfinite(end)) or start < 0:
@@ -77,7 +85,7 @@ def validate(raw: list[dict], min_hz: float, max_hz: float) -> list[EditNote]:
         if end - start < MIN_DURATION:
             raise ValueError(f"nota com menos de {MIN_DURATION * 1000:g} ms em {start:.2f}s")
         if not low <= pitch <= high:
-            raise ValueError(f"nota {pitch} fora da faixa da bobina ({low}-{high})")
+            raise ValueError(f"nota {pitch:g} fora da faixa da bobina ({low}-{high})")
         nid = n.get("id")
         if not isinstance(nid, int) or nid in seen:
             nid, next_id = next_id, next_id + 1

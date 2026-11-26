@@ -159,7 +159,7 @@ def reference_from_notes(notes: list[tuple]) -> Reference:
         if i >= n_frames:
             continue
         env[i:j] = 0.0
-        chroma[i:j, p[0] % 12] = 1.0
+        chroma[i:j, round(p[0]) % 12] = 1.0
     return Reference(env, chroma, np.array([a for a, _, _ in notes]), None)
 
 
@@ -191,7 +191,7 @@ def _note_score(ref: Reference, segments: list[tuple]) -> float:
         i, j = int(a * RATE / HOP), min(int(b * RATE / HOP) + 1, n)
         if i >= j:
             continue
-        c = ref.chroma[i:j, p[0] % 12]  # cosseno com vetor unitário = componente da nota
+        c = ref.chroma[i:j, round(p[0]) % 12]  # cosseno com vetor unitário = componente da nota
         norm = np.linalg.norm(ref.chroma[i:j], axis=1) + 1e-12
         w = 10 ** ((ref.env[i:j] - ref.env.max()) / 10)
         num += float((w * c / norm).sum())

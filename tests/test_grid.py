@@ -1,4 +1,4 @@
-"""Áudio -> melodia tocável: grade rítmica, oitava no centro da faixa, graves soltos, trecho e .mid.
+"""Áudio -> melodia tocável: grade rítmica, oitava original quando cabe, graves soltos, trecho e .mid.
 
 Cada teste reproduz um defeito medido contra uma melodia de referência em onda quadrada
 (coil_prep.evaluate): ritmo torto, oitava acima, saltos para o baixo, notas quebradas.
@@ -114,15 +114,15 @@ def test_lead_line_ignores_bass_leaking_under_and_between_the_melody():
     assert {p[0] for _, _, p in lead_line(bass)} == {36}
 
 
-def test_best_shift_centres_the_melody_in_the_coil_range():
-    """Regressão: melodia em 392-932 Hz ficava no lugar; o esperado é 196-466 Hz (oitava abaixo)."""
+def test_best_shift_keeps_the_original_octave_when_it_fits():
+    """Regressão: uma voz grave (~104 Hz) subia 2 oitavas para o centro de uma faixa larga."""
     high = [
         (i * 0.25, i * 0.25 + 0.2, (p,)) for i, p in enumerate([67, 70, 74, 79, 82, 81, 82, 67])
     ]
-    assert best_shift(high, 100, 1000) == -12
-    centred = [(a, b, (p - 12,)) for a, b, (p,) in high]
-    assert best_shift(centred, 100, 1000) == 0
-    low = [(a, b, (p - 36,)) for a, b, (p,) in high]
+    assert best_shift(high, 100, 1000) == 0  # 392-932 Hz já cabe: fica onde está
+    low_voice = [(a, b, (p - 24,)) for a, b, (p,) in high]  # 98-233 Hz
+    assert best_shift(low_voice, 39, 3136) == 0
+    low = [(a, b, (p - 36,)) for a, b, (p,) in high]  # não cabe: sobe o mínimo para caber
     assert best_shift(low, 100, 1000) == 24
 
 
@@ -131,7 +131,7 @@ def test_best_shift_still_prefers_fitting_in_range_over_centring():
     segs = [(0, 5, (64,)), (5, 6, (84,))]
     shift = best_shift(segs, 100, 1000)
     assert all(100 <= midi_to_hz(p + shift) <= 1000 for _, _, (p,) in segs)
-    # uma nota perdida de 1% do tempo fora da faixa não arrasta a música para longe do centro
+    # uma nota perdida de 1% do tempo fora da faixa não arrasta a música inteira
     stray = [(0, 99, (62,)), (99, 100, (26,))]
     assert best_shift(stray, 100, 1000) == 0
 
@@ -205,7 +205,7 @@ def test_rendered_grid_melody_scores_high_against_itself_as_reference():
     segs = to_grid(lead_line(notes), *tempo_grid(notes, beat=2 * STEP * 0.98))
     shift = best_shift(segs, 100, 1000)
     out = render([(a, b, (p[0] + shift,)) for a, b, p in segs], 100, 1000, -8.0)
-    ref = [(k * STEP, k * STEP + 0.16, p - 12) for k, p in enumerate(TUNE) if p is not None]
+    ref = [(k * STEP, k * STEP + 0.16, p + shift) for k, p in enumerate(TUNE) if p is not None]
     pytest.importorskip("mir_eval")
     c = evaluate.compare(ref, evaluate.square_notes(out))
     assert c.f1 > 0.97 and c.octave_errors == 0 and c.onset_jitter_ms < 15

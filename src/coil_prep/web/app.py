@@ -48,7 +48,7 @@ class NoteIn(BaseModel):
     id: int | None = None
     start: float
     end: float
-    pitch: int
+    pitch: float  # fracionária = afinação exata (gravação de voz)
 
 
 class NotesIn(BaseModel):
@@ -192,6 +192,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         start: float = Form(0.0),
         end: float | None = Form(None),
         is_recording: bool = Form(False, alias="recording"),  # o arquivo veio do microfone
+        voice: bool = Form(False),  # uma voz só (cantarolar): frequência exata, sem variações
         file: UploadFile | None = File(None),  # noqa: B008
     ):
         """Gera todas as variações de uma vez: um job por stem (áudio) ou por modo de trilha (.mid)."""
@@ -207,7 +208,14 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             if is_midi
             else [(s, None, s) for s in wanted]
         )
-        made = [jobs.submit(source, s, p, start, end, batch_id, label) for s, p, label in plan]
+        if voice:
+            if is_midi:
+                raise HTTPException(422, "o modo voz é para áudio, não .mid")
+            plan = [("mix", None, "voz (afinação exata)")]
+        made = [
+            jobs.submit(source, s, p, start, end, batch_id, label, voice=voice)
+            for s, p, label in plan
+        ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
 
     @app.get("/api/batches/{batch_id}")

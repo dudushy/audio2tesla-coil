@@ -562,3 +562,15 @@ def test_live_export_rejects_bad_input(client):
         == 422
     )
     assert client.post("/api/live/export", json={"format": "wav", "notes": []}).status_code == 422
+
+
+def test_fractional_pitch_notes_can_be_saved(client, tmp_path):
+    r = client.post(
+        "/api/jobs", data={"stem": "mix"}, files={"file": ("a.mid", midi_bytes(tmp_path))}
+    )
+    job = wait_done(client, r.json()["id"])
+    notes = [{"start": 0.0, "end": 0.5, "pitch": 57.3}, {"start": 0.5, "end": 1.0, "pitch": 60}]
+    r = client.put(f"/api/jobs/{job['id']}/notes", json={"notes": notes})
+    assert r.status_code == 200, r.text
+    assert [n["pitch"] for n in r.json()["notes"]] == [57.3, 60]
+    assert client.get(f"/api/jobs/{job['id']}/midi").content[:4] == b"MThd"

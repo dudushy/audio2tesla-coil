@@ -53,3 +53,27 @@ def test_recording_upload_becomes_wav_jobs(tmp_path):
     assert (data / "input" / source).is_file()
     assert send("lixo.m4a", b"isto nao e audio").status_code == 422
     assert send("musica.mid", audio).status_code == 422
+
+
+def test_voice_recording_is_one_exact_pitch_job(tmp_path):
+    seen = []
+
+    def fake(source, data_dir, profile, stem, progress=None, **kw):
+        seen.append(kw)
+        raise ValueError("fim do teste")
+
+    data = tmp_path / "data"
+    client = TestClient(create_app(data, JobManager(data, fake)))
+    r = client.post(
+        "/api/batches",
+        data={"stems": "mix,other,vocals", "recording": "true", "voice": "true"},
+        files={"file": ("g.webm", tone(tmp_path / "a.wav").read_bytes())},
+    )
+    assert [j["variant"] for j in r.json()["jobs"]] == ["voz (afinação exata)"]
+    import time
+
+    for _ in range(100):
+        if seen:
+            break
+        time.sleep(0.05)
+    assert seen and seen[0].get("voice") is True

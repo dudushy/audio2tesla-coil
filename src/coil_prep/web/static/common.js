@@ -1,7 +1,8 @@
 // Utilidades e navegação compartilhadas pelas páginas.
 const $ = (id) => document.getElementById(id);
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const noteName = (p) => NOTES[p % 12] + (Math.floor(p / 12) - 1);
+// altura fracionária (voz com afinação exata) mostra a nota mais próxima
+const noteName = (p) => { const r = Math.round(p); return NOTES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); };
 
 (() => {
   const here = location.pathname;
