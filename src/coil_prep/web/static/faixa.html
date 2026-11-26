@@ -270,7 +270,8 @@ async function showResult(job) {
   showParts(r); showStyle(r);
   $("box-original").classList.toggle("hidden", !r.has_original);
   if (r.has_original) $("audio-original").src = base + "original";
-  $("download").setAttribute("download", r.filename);
+  // sem o atributo "download": no celular ele entrega o arquivo ao gerenciador de downloads, que
+  // recusa o certificado autoassinado e falha calado; o servidor já manda o nome (attachment)
   $("download-mp3").href = base + "result?format=mp3&download=true";
   $("download-mid").href = `/api/jobs/${job.id}/midi`;
   $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}${r.bpm ? ` | ritmo na grade de ${r.bpm} BPM` : ""}`;
