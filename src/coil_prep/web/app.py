@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import bitmidi, feedback, nbssongs, recording, scores
+from .. import bitmidi, feedback, lakh, nbssongs, recording, scores
 from .. import notes as notes_mod
 from ..calibrate import write_mono_wav
 from ..fetch import is_url
@@ -128,6 +128,11 @@ class NbsSongIn(BaseModel):
     methods: str = "melody,noteblock,all"
 
 
+class LakhIn(BaseModel):
+    path: str  # "Artista/Título.mid" do índice (ver lakh.index)
+    methods: str = "melody,all"
+
+
 class ScoreIn(BaseModel):
     file: str  # caminho no Mutopia: .mid ou -mids.zip
     title: str = ""
@@ -148,8 +153,10 @@ def pretty_title(job) -> str:
     Tira o hash que o app põe no nome do arquivo enviado (-1a2b3c4d), extensões e "_".
     """
     stem = job.result.wav.stem if job.result else Path(job.source).stem
-    stem = stem.split(".")[0]  # "<nome>.mix.noteblock" -> "<nome>"
-    stem = re.sub(r"-[0-9a-f]{8}$", "", stem).replace("_", " ").strip() or "melodia"
+    # "<nome>-1a2b3c4d.rec.mix.t-1.noteblock" -> "<nome>": só os sufixos que o app acrescenta
+    stem = re.sub(r"\.(mix|other|vocals)(\.[\w.-]*)?$", "", stem)
+    stem = re.sub(r"(-[0-9a-f]{8})?(\.rec)?$", "", stem)
+    stem = stem.replace("_", " ").strip() or "melodia"
     return f"{stem} - {job.variant}" if job.variant else stem
 
 
@@ -611,19 +618,47 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(422, str(e)) from None
         except OSError:
             raise HTTPException(502, "não consegui baixar a música agora") from None
-        name, _ = safe_name(Path(body.name).stem + ".nbs")
-        dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}.nbs"
+        return notes_batch(data, Path(body.name).stem, ".nbs", body.methods)
+
+    def notes_batch(data: bytes, title: str, ext: str, methods: str) -> dict:
+        """Salva um arquivo de notas baixado de um acervo e gera as variações pedidas."""
+        chosen = [m.strip() for m in methods.split(",") if m.strip()]
+        if any(m not in (*METHOD_CHOICES, "all") for m in chosen):
+            raise HTTPException(422, f"formas de conversão inválidas: {methods}")
+        name, _ = safe_name(re.sub(r"[/\\]", " - ", title) + ext)
+        dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}{ext}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
-        chosen = [m.strip() for m in body.methods.split(",") if m.strip()]
-        if any(m not in (*METHOD_CHOICES, "all") for m in chosen):
-            raise HTTPException(422, f"formas de conversão inválidas: {body.methods}")
         batch_id = uuid.uuid4().hex
         made = [
             jobs.submit(str(dest), s, p, 0.0, None, batch_id, label, method=m)
             for s, p, m, label in batch_plan(True, ["mix"], chosen or ["melody"])
         ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
+
+    @app.get("/api/lakh/search")
+    def lakh_search(q: str, page: int = 0):
+        try:
+            return lakh.search(q, page)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui consultar o acervo de MIDI agora") from None
+
+    @app.post("/api/lakh/generate")
+    def lakh_generate(body: LakhIn):
+        """Baixa o .mid do Lakh MIDI Dataset e gera as variações."""
+        try:
+            data = lakh.download(body.path)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui baixar a música agora") from None
+        song = next(s for s in lakh.index() if s["path"] == body.path)
+        title = f"{song['artist']} - {song['title']}"
+        if song["version"] > 1:
+            title += f" - versão {song['version']}"
+        return notes_batch(data, title, ".mid", body.methods)
 
     @app.get("/api/scores/featured")
     def scores_featured():

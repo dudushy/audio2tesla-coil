@@ -12,13 +12,28 @@
   <h1>Partituras</h1>
   <p class="sub">A melodia vem das notas do arquivo (sem separar áudio) e é ajustada às notas <a href="/calibrate">calibradas</a> da bobina.</p>
   <div class="tabs" role="group" aria-label="Tipo de música">
-    <button type="button" id="tab-pop" aria-pressed="true">Jogos, memes e hits</button>
+    <button type="button" id="tab-hits" aria-pressed="true">Pop e rock</button>
+    <button type="button" id="tab-pop" aria-pressed="false">Jogos e Minecraft</button>
     <button type="button" id="tab-classic" aria-pressed="false">Clássicas</button>
   </div>
 
   <p id="status" class="hidden" aria-live="polite"></p>
 
-  <section id="pop">
+  <section id="hits">
+    <h2>Músicas populares em MIDI</h2>
+    <form id="lk" class="card">
+      <div class="row">
+        <input id="lk-q" type="search" placeholder="artista ou música (ex.: queen, abba dancing)" autocomplete="off" aria-label="Buscar música popular" style="flex:3">
+        <button type="submit">Buscar</button>
+      </div>
+      <ul id="lk-list" class="songs"></ul>
+      <div class="row"><button type="button" id="lk-prev" class="hidden">‹ Anterior</button><button type="button" id="lk-next" class="hidden">Próxima ›</button></div>
+      <p id="lk-msg" class="muted" aria-live="polite" style="margin-bottom:0">~17 mil MIDIs de pop e rock (sobretudo até ~2010: Beatles, Queen, ABBA, Metallica...). Toque em ▶ e o app baixa e gera as variações. Fonte: <a href="https://colinraffel.com/projects/lmd/" target="_blank" rel="noopener noreferrer">Lakh MIDI Dataset</a> (Colin Raffel, CC-BY 4.0).</p>
+    </form>
+    <p class="muted" id="lk-more">Não achou? Procure o .mid em <a id="lk-freemidi" href="https://freemidi.org/" target="_blank" rel="noopener noreferrer">FreeMIDI</a> ou no BitMidi (aba Jogos e Minecraft) e envie o arquivo em <a href="/">Gerar</a>. As músicas têm direitos autorais: uso pessoal.</p>
+  </section>
+
+  <section id="pop" class="hidden">
     <h2>Músicas de Minecraft (note block)</h2>
     <form id="nb" class="card">
       <div class="row">
@@ -154,15 +169,56 @@ $("search").onsubmit = (e) => {
   if (query) search(0);
 };
 function setTab(name) {
-  for (const t of ["pop", "classic"]) {
+  for (const t of ["hits", "pop", "classic"]) {
     $(t).classList.toggle("hidden", t !== name);
     $("tab-" + t).setAttribute("aria-pressed", t === name);
   }
   try { localStorage.setItem("coil.scores.tab", name); } catch (e) { /* sem storage */ }
 }
+$("tab-hits").onclick = () => setTab("hits");
 $("tab-pop").onclick = () => setTab("pop");
 $("tab-classic").onclick = () => setTab("classic");
-try { if (localStorage.getItem("coil.scores.tab") === "classic") setTab("classic"); } catch (e) { /* sem storage */ }
+try {
+  const saved = localStorage.getItem("coil.scores.tab");
+  if (saved === "pop" || saved === "classic") setTab(saved);
+} catch (e) { /* sem storage */ }
+
+// pop e rock: Lakh MIDI Dataset, busca e geração com um toque
+let lkQuery = "";
+async function lkSearch(page) {
+  $("lk-msg").textContent = "Buscando...";
+  $("lk-freemidi").href = "https://freemidi.org/search?q=" + encodeURIComponent(lkQuery);
+  try {
+    const data = await getJSON(`/api/lakh/search?q=${encodeURIComponent(lkQuery)}&page=${page}`);
+    $("lk-list").textContent = "";
+    for (const s of data.results) {
+      const li = el("li"), go = el("button", "", "▶"), name = el("span");
+      go.type = "button"; go.setAttribute("aria-label", `Gerar ${s.artist} - ${s.title}`);
+      go.onclick = () => lkGenerate(s, go);
+      name.append(el("b", "", s.title), document.createTextNode(" · " + s.artist));
+      li.append(go, name);
+      if (s.version > 1) li.appendChild(el("small", "muted", "versão " + s.version));
+      $("lk-list").appendChild(li);
+    }
+    $("lk-prev").classList.toggle("hidden", page === 0);
+    $("lk-next").classList.toggle("hidden", !data.has_next);
+    $("lk-prev").onclick = () => lkSearch(page - 1);
+    $("lk-next").onclick = () => lkSearch(page + 1);
+    $("lk-msg").textContent = data.total
+      ? `${data.total} resultado(s). Toque em ▶ para gerar; se uma versão soar mal, tente outra.`
+      : "Nada encontrado neste acervo. Tente o nome em inglês, só o artista, ou os links abaixo.";
+  } catch (e) { $("lk-msg").textContent = e.message; }
+}
+async function lkGenerate(song, btn) {
+  if (busy) return;
+  busy = true; btn.disabled = true;
+  showStatus(`Baixando "${song.title}"...`);
+  try {
+    const b = await postJSON("/api/lakh/generate", { path: song.path });
+    location.href = "/?batch=" + b.id;
+  } catch (e) { showStatus(e.message, true); busy = false; btn.disabled = false; }
+}
+$("lk").onsubmit = (e) => { e.preventDefault(); lkQuery = $("lk-q").value.trim(); if (lkQuery) lkSearch(0); };
 
 // jogos, memes e hits: o BitMidi só é pesquisado; quem baixa o arquivo é a pessoa
 let bmQuery = "";
