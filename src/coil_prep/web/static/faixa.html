@@ -90,7 +90,7 @@
 
       <section class="card">
         <h2>Exportar</h2>
-        <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a> · <a id="download-mid" class="dl">Baixar MIDI</a>
+        <a id="download" class="dl">Baixar WAV</a> · <a id="download-mp3" class="dl">Baixar MP3</a> · <a id="download-mid" class="dl">Baixar MIDI</a> · <a id="download-nbs" class="dl">Baixar NBS (Minecraft)</a>
       </section>
 
       <section class="card" id="rate">
@@ -274,6 +274,7 @@ async function showResult(job) {
   // recusa o certificado autoassinado e falha calado; o servidor já manda o nome (attachment)
   $("download-mp3").href = base + "result?format=mp3&download=true";
   $("download-mid").href = `/api/jobs/${job.id}/midi`;
+  $("download-nbs").href = `/api/jobs/${job.id}/nbs`;
   $("summary").textContent = `${r.notes} notas → ${r.segments} trechos | faixa ${r.min_hz}–${r.max_hz} Hz | pico ${r.peak_db} dBFS${r.shift ? ` | transposta ${r.shift > 0 ? "+" : ""}${r.shift} semitons` : ""}${r.bpm ? ` | ritmo na grade de ${r.bpm} BPM` : ""}`;
   const w = [];
   if (r.overlap_warning) w.push(`${Math.round(r.overlap * 100)}% do tempo tem notas sobrepostas; a melodia pode sair errada. Volte às variações e compare outro "som".`);
@@ -298,6 +299,30 @@ $("bad").onclick = () => $("tag-box").classList.remove("hidden");
 $("save-bad").onclick = () => sendFeedback(-1, $("tag").value);
 
 poll();
+
+// downloads pela própria página (fetch + arquivo local): no celular, um link comum entrega o
+// download ao gerenciador do sistema, que recusa o certificado autoassinado e falha calado
+for (const id of ["download", "download-mp3", "download-mid", "download-nbs"]) {
+  $(id).addEventListener("click", async (e) => {
+    const a = e.currentTarget;
+    if (!a.href || a.dataset.busy) return;
+    e.preventDefault();
+    const label = a.textContent;
+    a.dataset.busy = "1"; a.textContent = "Baixando…";
+    try {
+      const res = await fetch(a.href);
+      if (!res.ok) throw new Error("erro " + res.status);
+      const cd = res.headers.get("content-disposition") || "";
+      const m = /filename\*=utf-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+      const tmp = document.createElement("a");
+      tmp.href = URL.createObjectURL(await res.blob());
+      tmp.download = m ? decodeURIComponent(m[1]) : "melodia";
+      tmp.click();
+      setTimeout(() => URL.revokeObjectURL(tmp.href), 10000);
+    } catch (err) { alert("Não consegui baixar: " + err.message); }
+    a.textContent = label; delete a.dataset.busy;
+  });
+}
 </script>
 </body>
 </html>

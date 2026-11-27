@@ -19,7 +19,19 @@
   <p id="status" class="hidden" aria-live="polite"></p>
 
   <section id="pop">
-    <h2>1. Buscar o MIDI</h2>
+    <h2>Músicas de Minecraft (note block)</h2>
+    <form id="nb" class="card">
+      <div class="row">
+        <input id="nb-q" type="search" placeholder="ex.: zelda, megalovania, alan walker" autocomplete="off" aria-label="Buscar música de note block" style="flex:3">
+        <button type="submit">Buscar</button>
+      </div>
+      <ul id="nb-list" class="songs"></ul>
+      <div class="row"><button type="button" id="nb-prev" class="hidden">‹ Anterior</button><button type="button" id="nb-next" class="hidden">Próxima ›</button></div>
+      <p id="nb-msg" class="muted" aria-live="polite" style="margin-bottom:0">Arranjos nota a nota feitos por fãs, do acervo do <a href="https://mcutils.com/note-block-songs" target="_blank" rel="noopener noreferrer">MC Utils</a>. Toque em ▶ e o app baixa e gera as variações (transcrição, Note Block e todas as camadas).</p>
+    </form>
+
+    <h2>Outras fontes: MIDI</h2>
+    <h3>1. Buscar o MIDI</h3>
     <form id="bm" class="card">
       <div class="row">
         <input id="bm-q" type="search" placeholder="ex.: zelda, sonic green hill, rickroll" autocomplete="off" aria-label="Buscar no BitMidi" style="flex:3">
@@ -30,13 +42,13 @@
       <div class="row"><button type="button" id="bm-prev" class="hidden">‹ Anterior</button><button type="button" id="bm-next" class="hidden">Próxima ›</button></div>
       <p id="bm-msg" class="muted" aria-live="polite" style="margin-bottom:0">Resultados do BitMidi: abra um, baixe o .mid e envie no passo 2.</p>
     </form>
-    <p class="muted">Música de jogos também em <a href="https://www.ninsheetmusic.org/" target="_blank" rel="noopener noreferrer">NinSheetMusic</a> (Nintendo, com partitura e MIDI) e <a href="https://www.vgmusic.com/" target="_blank" rel="noopener noreferrer">VGMusic</a> (vários consoles, Sega inclusive). Essas músicas têm direitos autorais: use só para fins pessoais e respeite as regras de cada site.</p>
+    <p class="muted">Música de jogos também em <a href="https://www.ninsheetmusic.org/" target="_blank" rel="noopener noreferrer">NinSheetMusic</a> (Nintendo, com partitura e MIDI) e <a href="https://www.vgmusic.com/" target="_blank" rel="noopener noreferrer">VGMusic</a> (vários consoles, Sega inclusive). Versões de Minecraft (note block, já arranjadas nota a nota por fãs) em <a href="https://noteblock.world/" target="_blank" rel="noopener noreferrer">Note Block World</a>: baixe o .nbs. Essas músicas têm direitos autorais: use só para fins pessoais e respeite as regras de cada site.</p>
 
-    <h2>2. Enviar o .mid</h2>
+    <h3>2. Enviar o .mid ou .nbs</h3>
     <label class="drop card" id="drop">
       <strong>Toque para escolher o arquivo</strong>
-      <span class="muted">ou arraste o .mid até aqui; a geração começa na hora</span>
-      <input id="mid" type="file" accept=".mid,.midi,audio/midi">
+      <span class="muted">ou arraste o arquivo até aqui; a geração começa na hora</span>
+      <input id="mid" type="file" accept=".mid,.midi,.nbs,audio/midi">
     </label>
   </section>
 
@@ -183,9 +195,42 @@ for (const [label, q] of [["Mario", "mario"], ["Zelda", "zelda"], ["Sonic", "son
   $("chips").appendChild(b);
 }
 
+// acervo de note block: busca no servidor, que baixa e gera com um toque
+let nbQuery = "";
+const mmss = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : "");
+async function nbSearch(page) {
+  $("nb-msg").textContent = "Buscando...";
+  try {
+    const data = await getJSON(`/api/nbs-songs/search?q=${encodeURIComponent(nbQuery)}&page=${page}`);
+    $("nb-list").textContent = "";
+    for (const s of data.results) {
+      const li = el("li"), go = el("button", "", "▶");
+      go.type = "button"; go.setAttribute("aria-label", "Gerar " + s.title);
+      go.onclick = () => nbGenerate(s, go);
+      li.append(go, el("span", "", s.title), el("small", "muted", mmss(s.seconds)));
+      $("nb-list").appendChild(li);
+    }
+    $("nb-prev").classList.toggle("hidden", page === 0);
+    $("nb-next").classList.toggle("hidden", !data.has_next);
+    $("nb-prev").onclick = () => nbSearch(page - 1);
+    $("nb-next").onclick = () => nbSearch(page + 1);
+    $("nb-msg").textContent = data.total ? `${data.total} música(s). Toque em ▶ para gerar.` : "Nada encontrado. Tente outro nome (em inglês costuma achar mais).";
+  } catch (e) { $("nb-msg").textContent = e.message; }
+}
+async function nbGenerate(song, btn) {
+  if (busy) return;
+  busy = true; btn.disabled = true;
+  showStatus(`Baixando "${song.title}"...`);
+  try {
+    const b = await postJSON("/api/nbs-songs/generate", { name: song.name });
+    location.href = "/?batch=" + b.id;
+  } catch (e) { showStatus(e.message, true); busy = false; btn.disabled = false; }
+}
+$("nb").onsubmit = (e) => { e.preventDefault(); nbQuery = $("nb-q").value.trim(); nbSearch(0); };
+
 async function sendMidi(file) {
   if (!file || busy) return;
-  if (!/\.midi?$/i.test(file.name)) { showStatus("Envie um arquivo .mid ou .midi.", true); return; }
+  if (!/\.(midi?|nbs)$/i.test(file.name)) { showStatus("Envie um arquivo .mid, .midi ou .nbs.", true); return; }
   busy = true;
   showStatus(`Enviando ${file.name}...`);
   const fd = new FormData();

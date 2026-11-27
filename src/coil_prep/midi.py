@@ -198,37 +198,49 @@ def silent_regions(notes: list[Note], end: float, min_gap: float) -> list[tuple[
 
 
 def combine_parts(
-    parts: list[MidiPart], min_gap: float = 1.0, rel: float = 0.4
+    parts: list[MidiPart], min_gap: float = 1.0, rel: float = 0.4, backing_gap: float = 2.0
 ) -> tuple[list[Note], dict[int, float]]:
     """Melodia de várias trilhas: a melhor trilha manda; as outras só preenchem as pausas dela.
 
     Num .mid real a melodia costuma passar de um instrumento para outro (riff de sintetizador,
     voz, ponte...), então uma trilha só deixa buracos onde ela cala. Aqui a trilha mais provável
-    de ser a melodia fica inteira; as demais que também parecem melodia (pontuação >= `rel` x a
-    da melhor; baixo e pads ficam de fora) entram só dentro de pausas de >= `min_gap` s, cortadas
-    nas bordas da pausa: nunca interrompem a trilha principal, e o resultado continua em 1 voz.
-    Retorna (notas, segundos soando por trilha).
+    de ser a melodia fica inteira; as demais entram só dentro das pausas dela, cortadas nas bordas
+    da pausa: nunca interrompem a trilha principal, e o resultado continua em 1 voz.
+
+    1º as que também parecem melodia (pontuação POR SEGUNDO soando >= `rel` x a da principal: uma
+    2ª voz que toca pouco continua sendo melodia; antes o critério era a pontuação total, e uma
+    voz de resposta com 1/3 do tempo ficava de fora), em pausas de >= `min_gap` s. Depois, como
+    último recurso, baixo e acompanhamento sem acordes nas pausas de >= `backing_gap` s que ainda
+    sobrarem (num arranjo de note block a melodia chega a calar 30% da música, e o silêncio na
+    bobina soa pior que o baixo). Pads e acordes nunca entram. Retorna (notas, segundos por trilha).
     """
     ranked = sorted(((part_score(p), p) for p in parts), key=lambda t: (-t[0], t[1].id))
     ranked = [(sc, p) for sc, p in ranked if sc > 0]
     if not ranked:
         raise ValueError("nenhuma nota encontrada no MIDI")
     end = max(n.end for _, p in ranked for n in p.notes)
-    best = ranked[0][0]
-    notes = list(ranked[0][1].notes)
-    used = {ranked[0][1].id: coverage(notes)[0]}
-    for score, part in ranked[1:]:
-        if score < rel * best:
-            continue
+    quality = {p.id: sc / max(coverage(p.notes)[0], 1e-9) for sc, p in ranked}
+    lead = ranked[0][1]
+    notes = list(lead.notes)
+    used = {lead.id: coverage(notes)[0]}
+
+    def fill(part: MidiPart, gap: float) -> None:
         added = []
-        for lo, hi in silent_regions(notes, end, min_gap):
+        for lo, hi in silent_regions(notes, end, gap):
             for n in part.notes:
                 start, stop = max(n.start, lo), min(n.end, hi)
                 if stop - start >= 0.02:
                     added.append(Note(start, stop, n.pitch, n.amp, n.part))
         if added:
             used[part.id] = coverage(added)[0]
-            notes += added
+            notes.extend(added)
+
+    melodic = [p for _, p in ranked[1:] if quality[p.id] >= rel * quality[lead.id]]
+    for part in melodic:
+        fill(part, min_gap)
+    for _, part in ranked[1:]:
+        if part not in melodic and chordiness(part.notes) < 0.5:
+            fill(part, backing_gap)
     return sorted(notes, key=lambda n: (n.start, n.pitch)), used
 
 

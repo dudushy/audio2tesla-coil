@@ -157,3 +157,17 @@ button.rec.on { border-color:var(--bad); color:var(--bad); }
 .meter { height:8px; margin:8px 0; background:var(--bg); border:1px solid var(--line); border-radius:99px; overflow:hidden; }
 .meter span { display:block; height:100%; width:0; background:var(--good); }
 code { overflow-wrap:anywhere; }
+
+/* formas de conversão: título e explicação curta */
+.checks.methods { flex-direction:column; gap:2px; }
+.checks.methods label { align-items:flex-start; }
+.checks.methods input { margin-top:3px; flex:none; }
+.checks.methods span { display:flex; flex-direction:column; }
+.checks.methods small { color:var(--muted); font-size:.85rem; }
+
+/* acervo de note block */
+ul.songs { list-style:none; padding:0; margin:8px 0; }
+ul.songs li { display:flex; align-items:center; gap:10px; padding:4px 0; border-bottom:1px solid var(--line); }
+ul.songs li span { flex:1; }
+ul.songs button { min-height:40px; min-width:44px; padding:4px 10px; }
+h3 { font-size:1rem; margin:12px 0 6px; }
