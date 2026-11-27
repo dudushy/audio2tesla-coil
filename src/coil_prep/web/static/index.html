@@ -42,8 +42,8 @@
         <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
       </div>
       <div id="box-file" class="hidden">
-        <label for="file">Arquivo de áudio ou .mid (até 100 MB)</label>
-        <input id="file" type="file" accept="audio/*,.mid,.midi,.opus,.webm">
+        <label for="file">Arquivo de áudio, .mid ou .nbs do Minecraft (até 100 MB)</label>
+        <input id="file" type="file" accept="audio/*,.mid,.midi,.nbs,.opus,.webm">
         <details id="bm" style="margin-top:8px">
           <summary>Buscar MIDI no BitMidi</summary>
           <div class="row">
@@ -59,14 +59,21 @@
       <button class="primary" id="go" type="submit">Gerar</button>
 
       <details class="opts">
-        <summary>Opções: variações e trecho</summary>
-        <label id="stems-label">Variações a gerar</label>
+        <summary>Opções: formas de conversão, variações e trecho</summary>
+        <label id="methods-label">Formas de conversão (marque várias para comparar)</label>
+        <div class="checks methods" id="methods" role="group" aria-labelledby="methods-label">
+          <label><input type="checkbox" value="melody" checked> <span><b>Transcrição de notas</b><small>reconhece as notas da música e encaixa no ritmo (padrão)</small></span></label>
+          <label><input type="checkbox" value="exact"> <span><b>Afinação exata</b><small>uma voz ou instrumento solo, na frequência em que foi tocado (só áudio)</small></span></label>
+          <label><input type="checkbox" value="noteblock"> <span><b>Estilo Note Block (Minecraft)</b><small>uma batida por tique (0,1 s), nas 25 notas do note block</small></span></label>
+          <label><input type="checkbox" value="all" checked> <span><b>Todas as trilhas misturadas</b><small>só para .mid e .nbs: mistura as trilhas em vez de escolher a melodia</small></span></label>
+        </div>
+        <label id="stems-label">Partes da música (só áudio)</label>
         <div class="checks" id="stems" role="group" aria-labelledby="stems-label">
           <label><input type="checkbox" value="other" checked> other · melodia em sintes</label>
           <label><input type="checkbox" value="vocals" checked> vocals · voz cantada</label>
           <label><input type="checkbox" value="mix" checked> mix · sem separar</label>
         </div>
-        <p class="muted" style="margin:2px 0 0">Para arquivo .mid as variações são outras: trilhas automáticas x todas as trilhas misturadas.</p>
+        <p class="muted" style="margin:2px 0 0">Cada parte marcada é gerada em cada forma de conversão marcada. Em .mid e .nbs não há partes: "Transcrição" usa as trilhas automáticas.</p>
         <label for="t-start">Trecho (opcional)</label>
         <div class="row">
           <input id="t-start" type="text" inputmode="decimal" placeholder="início (ex.: 0:30)" autocomplete="off" aria-label="Início do trecho">
@@ -90,26 +97,42 @@
 let mode = "url", timer = null, batchId = null, tags = [], suggestion = null, ratings = 0;
 const cards = new Map();  // job id -> {el, status}
 
-const stemBoxes = () => [...document.querySelectorAll("#stems input")];
-let otherStems = null;  // variações marcadas antes de ir para a gravação
-// cantarolar é uma voz só (sem separar); música tocando segue as variações de um link
-function stemsForKind() {
+const boxes = () => [...document.querySelectorAll("#stems input, #methods input")];
+const picked = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((c) => c.value);
+let saved = null;  // marcações de antes de ir para a gravação
+// cantarolar é uma voz só: afinação exata, sem separar; música tocando segue as opções de um link
+function optionsForKind() {
   const hum = document.querySelector("input[name=kind]:checked").value === "hum";
-  for (const c of stemBoxes()) c.checked = !hum || c.value === "mix";
+  for (const c of document.querySelectorAll("#stems input")) c.checked = !hum || c.value === "mix";
+  for (const c of document.querySelectorAll("#methods input")) c.checked = hum ? c.value === "exact" : c.value === "melody";
+  countVariations();
 }
+const isNotesFile = () => mode === "file" && /\.(midi?|nbs)$/i.test(($("file").files[0] || {}).name || "");
+// mostra no botão quantas variações serão geradas
+function countVariations() {
+  const methods = picked("methods"), stems = picked("stems");
+  const n = isNotesFile()
+    ? methods.filter((m) => m !== "exact").length
+    : stems.length * methods.filter((m) => m !== "all").length;
+  $("go").textContent = n > 1 ? `Gerar ${n} variações` : "Gerar";
+  return n;
+}
+for (const c of boxes()) c.addEventListener("change", countVariations);
+$("file").addEventListener("change", countVariations);
 function setMode(m) {
-  if (m === "mic" && mode !== "mic") { otherStems = stemBoxes().map((c) => c.checked); stemsForKind(); }
-  if (m !== "mic" && mode === "mic") { stopRecording(); stemBoxes().forEach((c, i) => { c.checked = otherStems[i]; }); }
+  if (m === "mic" && mode !== "mic") { saved = boxes().map((c) => c.checked); mode = m; optionsForKind(); }
+  if (m !== "mic" && mode === "mic") { stopRecording(); boxes().forEach((c, i) => { c.checked = saved[i]; }); }
   mode = m;
   for (const t of ["mic", "url", "file"]) {
     $("tab-" + t).setAttribute("aria-pressed", m === t);
     $("box-" + t).classList.toggle("hidden", m !== t);
   }
+  countVariations();
 }
 $("tab-mic").onclick = () => setMode("mic");
 $("tab-url").onclick = () => setMode("url");
 $("tab-file").onclick = () => setMode("file");
-for (const r of document.querySelectorAll("input[name=kind]")) r.onchange = stemsForKind;
+for (const r of document.querySelectorAll("input[name=kind]")) r.onchange = optionsForKind;
 
 // --- microfone ---------------------------------------------------------------------------------
 const MAX_REC = 600;  // s, como no servidor
@@ -238,16 +261,17 @@ $("form").addEventListener("submit", async (ev) => {
   if (Number.isNaN(t0) || Number.isNaN(t1)) { showStatus("Trecho inválido: use segundos (90) ou min:seg (1:30).", true); return; }
   if (t0 !== null) fd.append("start", t0);
   if (t1 !== null) fd.append("end", t1);
-  const stems = [...document.querySelectorAll("#stems input:checked")].map((c) => c.value);
-  const isMidi = mode === "file" && /\.midi?$/i.test(($("file").files[0] || {}).name || "");
-  if (!stems.length && !isMidi) { showStatus("Marque pelo menos uma variação.", true); return; }
-  fd.append("stems", stems.join(","));
+  const stems = picked("stems"), methods = picked("methods");
+  if (!countVariations()) {
+    showStatus(isNotesFile() ? "Para .mid/.nbs marque Transcrição, Note Block ou Todas as trilhas." : "Marque pelo menos uma parte e uma forma de conversão.", true);
+    return;
+  }
+  if (stems.length) fd.append("stems", stems.join(","));
+  fd.append("methods", methods.join(","));
   if (mode === "mic") {
     if (!recorded) { showStatus("Grave um áudio primeiro.", true); return; }
     fd.append("file", recorded);
     fd.append("recording", "true");
-    // cantarolar/assobiar: uma voz só, mantém a frequência exata de cada nota
-    if (document.querySelector("input[name=kind]:checked").value === "hum") fd.append("voice", "true");
   } else if (mode === "url") fd.append("url", $("url").value);
   else if ($("file").files[0]) fd.append("file", $("file").files[0]);
   $("go").disabled = true;

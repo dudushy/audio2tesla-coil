@@ -13,7 +13,6 @@ from .fetch import fetch, is_url
 from .ffmpeg import decode_mono, trim_audio
 from .midi import (
     ALL_PARTS,
-    MIDI_EXTS,
     RATE,
     Note,
     beat_period,
@@ -28,7 +27,6 @@ from .midi import (
     notes_from,
     out_of_range_fraction,
     overlap_fraction,
-    read_midi_parts,
     render,
     select_part,
     skyline,
@@ -37,12 +35,17 @@ from .midi import (
     transpose,
     write_midi,
 )
+from .noteblock import NOTE_EXTS, fft_notes, nbs_tick, noteblock_style, read_parts
 from .profile import Profile
 from .separate import separate
 from .voice import voice_notes
 
 STEM_CHOICES = ("other", "vocals", "mix")  # "mix" = sem separação
-STYLE_CHOICES = ("auto", *fidelity.PRESETS)  # "auto" = melhor score da busca duty x gate
+STYLE_CHOICES = ("auto", *fidelity.PRESETS)
+# formas de converter: melody = transcrição de notas (áudio) / trilhas do arquivo (.mid, .nbs);
+# exact = frequência exata de uma voz ou instrumento solo (só áudio);
+# noteblock = como os conversores de Minecraft: uma batida por tique, nas 25 notas do note block
+METHOD_CHOICES = ("melody", "exact", "noteblock")  # "auto" = melhor score da busca duty x gate
 PEAK_DB = -8.0  # nível que a bobina tocou bem (referência Mario)
 FALLBACK_RANGE = (100.0, 800.0)
 TRIM_PAD = 1.0  # s de áudio além do trecho pedido, de cada lado, para separar e transcrever
@@ -102,7 +105,7 @@ def process(
     style: str = "classic",
     start: float = 0.0,
     end: float | None = None,
-    voice: bool = False,
+    method: str = "melody",
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
@@ -110,9 +113,12 @@ def process(
     as trilhas que parecem melodia (a melhor manda, as outras preenchem as pausas dela).
     `start`/`end` (s): processa só esse trecho da música (o tempo da saída começa em `start`).
     `style`: o padrão é a quadrada de 50% que a bobina já tocou bem; "auto" usa a busca de estilo.
-    `voice`: gravação de uma voz só (cantarolar, assobiar): mede a frequência exata de cada nota
-    (sem transcritor de música, sem grade rítmica e sem arredondar para o semitom).
+    `method` (ver METHOD_CHOICES): "exact" é para uma voz só (cantarolar, assobiar) e mede a
+    frequência exata de cada nota (sem transcritor, grade rítmica ou arredondar para o semitom);
+    "noteblock" converte como os conversores de músicas para Minecraft.
     """
+    if method not in METHOD_CHOICES:
+        raise ValueError(f"forma de conversão inválida: {method}")
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
     if style not in STYLE_CHOICES:
@@ -129,7 +135,7 @@ def process(
         original = Path(source).expanduser()
         if not original.is_file():
             raise ValueError(f"arquivo não encontrado: {original}")
-    is_midi = original.suffix.lower() in MIDI_EXTS
+    is_midi = original.suffix.lower() in NOTE_EXTS  # .mid ou .nbs: já traz as notas
     source_audio, pre = original, 0.0  # áudio que é separado/transcrito; margem antes do trecho
     if trimmed and not is_midi:  # corta antes de separar: o Demucs só roda no trecho
         progress("Cortando o trecho...")
@@ -140,8 +146,8 @@ def process(
         original = trim_audio(original, start, end, workdir / "input")  # o que o usuário ouve
 
     origin = source_audio
-    if voice and is_midi:
-        raise ValueError("o modo voz é para gravações de áudio, não .mid")
+    if method == "exact" and is_midi:
+        raise ValueError("a frequência exata é para áudio, não para arquivo de notas")
     if stem != "mix" and not is_midi:
         progress(f"Isolando '{stem}' com Demucs (CPU, pode levar minutos na 1ª vez)...")
         origin = separate(source_audio, stem, workdir / "separated")
@@ -149,7 +155,7 @@ def process(
     progress("Extraindo a melodia...")
     parts_info, chosen_part, bpm = (), None, None
     if is_midi:
-        parts = read_midi_parts(origin)
+        parts = read_parts(origin)
         if trimmed:
             for p in parts:
                 p.notes = clip_notes(p.notes, start, end)
@@ -176,8 +182,13 @@ def process(
         # abaixo); a pontuação por amplitude serve para notas transcritas de áudio, não para
         # velocity de MIDI (raízes de violão, longas e fortes, ganhavam do riff: 29% do tempo no Blue)
         segments = skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
-    elif voice:
-        segments = voice_notes(origin)
+        if method == "noteblock":
+            segments = noteblock_style(segments, nbs_tick(origin))
+    elif method in ("exact", "noteblock"):
+        if method == "exact":
+            segments = voice_notes(origin)
+        else:
+            segments = noteblock_style(fft_notes(origin))
         notes = [Note(a, b, p[0]) for a, b, p in segments]
         if pre or end is not None:  # tira a margem do trecho, como no áudio
             stop = math.inf if end is None else end - start
@@ -210,12 +221,14 @@ def process(
     segments = transpose(segments, shift)
     out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
     shifted = segments
-    if out_of_range or not voice:  # voz dentro da faixa: nenhuma nota sai do lugar
+    if out_of_range or method != "exact":  # voz dentro da faixa: nenhuma nota sai do lugar
         segments = contour_fold(segments, min_hz, max_hz, profile.notes if profile else ())
     moved = _moved_fraction(shifted, segments)
 
     progress("Gerando a onda quadrada...")
     suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
+    if method != "melody":  # cada forma de conversão tem o próprio arquivo
+        suffix += f".{method}"
     if trimmed and is_midi:  # no áudio o trecho já está no nome do arquivo cortado
         suffix += f".{start:g}-{'fim' if end is None else format(end, 'g')}"
     out = workdir / "output" / f"{original.stem}.{stem}{suffix}.wav"  # um arquivo por stem/trilha

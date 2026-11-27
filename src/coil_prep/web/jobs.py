@@ -39,7 +39,7 @@ class Job:
     origin: str = ""  # link ou caminho completo da fonte, para refazer com outra trilha
     start: float = 0.0
     end: float | None = None
-    voice: bool = False  # gravação de uma voz: frequência exata (ver pipeline.process)
+    method: str = "melody"  # forma de conversão (ver pipeline.METHOD_CHOICES)
     created: float = field(default_factory=lambda: __import__("time").time())
 
     def to_dict(self) -> dict:
@@ -102,7 +102,7 @@ class JobManager:
         end: float | None = None,
         batch: str = "",
         variant: str = "",
-        voice: bool = False,
+        method: str = "melody",
     ) -> Job:
         label = source if is_url(source) else Path(source).name
         job = Job(
@@ -114,7 +114,7 @@ class JobManager:
             origin=source,
             start=start,
             end=end,
-            voice=voice,
+            method=method,
         )
         with self._lock:
             self._jobs[job.id] = job
@@ -150,8 +150,8 @@ class JobManager:
             extra = {} if part is None else {"part": part}
             if start > 0 or end is not None:
                 extra |= {"start": start, "end": end}
-            if job.voice:
-                extra |= {"voice": True}
+            if job.method != "melody":
+                extra |= {"method": job.method}
             job.result = self.process_fn(
                 source,
                 self.data_dir,

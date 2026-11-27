@@ -15,13 +15,22 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import bitmidi, feedback, recording, scores
+from .. import bitmidi, feedback, nbssongs, recording, scores
 from .. import notes as notes_mod
 from ..calibrate import write_mono_wav
 from ..fetch import is_url
 from ..ffmpeg import FfmpegError, wav_to_mp3
-from ..midi import MIDI_EXTS, RATE, render, write_midi
-from ..pipeline import FALLBACK_RANGE, PEAK_DB, STEM_CHOICES, STYLE_CHOICES, apply_edit, restyle
+from ..midi import RATE, render, write_midi
+from ..noteblock import NOTE_EXTS, write_nbs
+from ..pipeline import (
+    FALLBACK_RANGE,
+    METHOD_CHOICES,
+    PEAK_DB,
+    STEM_CHOICES,
+    STYLE_CHOICES,
+    apply_edit,
+    restyle,
+)
 from ..profile import (
     COIL_HIGH,
     COIL_LOW,
@@ -33,9 +42,9 @@ from ..profile import (
 from .jobs import JobManager
 
 STATIC = Path(__file__).parent / "static"
-UPLOAD_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".webm", *MIDI_EXTS}
+UPLOAD_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".webm", *NOTE_EXTS}
 # formatos que gravadores de navegador/celular produzem (aceitos só como gravação)
-RECORDING_EXTS = (UPLOAD_EXTS - MIDI_EXTS) | {".mp4", ".aac", ".3gp", ".amr"}
+RECORDING_EXTS = (UPLOAD_EXTS - NOTE_EXTS) | {".mp4", ".aac", ".3gp", ".amr"}
 MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB
 
 
@@ -69,10 +78,54 @@ class LiveIn(BaseModel):
     fit: bool = True  # True = dobra por oitavas para a faixa calibrada (o que a bobina toca)
 
 
+METHOD_LABELS = {
+    "melody": "transcrição",
+    "exact": "afinação exata",
+    "noteblock": "estilo Note Block",
+}
+
+
+def batch_plan(is_notes: bool, stems: list[str], methods: list[str]) -> list[tuple]:
+    """(stem, trilha, forma de conversão, rótulo) de cada variação de um lote.
+
+    Áudio: cada stem x cada forma. Arquivo de notas (.mid/.nbs): "melody" vira trilhas
+    automáticas e "all" (todas as trilhas misturadas); "exact" não se aplica.
+    """
+    if is_notes:
+        names = {
+            "melody": [(None, "melody", "trilhas automáticas")],
+            "all": [(-1, "melody", "todas as trilhas")],
+            "noteblock": [(None, "noteblock", "estilo Note Block")],
+        }
+        plan = [("mix", *x) for m in methods for x in names.get(m, [])]
+        if not plan:
+            raise HTTPException(
+                422, "para .mid/.nbs escolha transcrição, todas as trilhas ou Note Block"
+            )
+        return plan
+    methods = [m for m in methods if m != "all"]
+    if not methods:
+        raise HTTPException(422, "escolha pelo menos uma forma de conversão para áudio")
+
+    def label(stem: str, method: str) -> str:
+        if methods == ["melody"]:
+            return stem  # como antes: só o stem
+        if len(stems) == 1 and stem == "mix":
+            return METHOD_LABELS[method]
+        return f"{stem} · {METHOD_LABELS[method]}"
+
+    return [(s, None, m, label(s, m)) for s in stems for m in methods]
+
+
 class ProfileIn(BaseModel):
     min_hz: float | None = None
     max_hz: float | None = None
     notes: list[int] | None = None  # notas ouvidas na calibragem (dispensa min/max)
+
+
+class NbsSongIn(BaseModel):
+    name: str  # nome do arquivo no acervo (ver nbssongs.songs)
+    methods: str = "melody,noteblock,all"
 
 
 class ScoreIn(BaseModel):
@@ -87,6 +140,17 @@ def safe_name(filename: str) -> tuple[str, str]:
     path = Path(filename.replace("\\", "/")).name
     stem = re.sub(r"[^\w.-]+", "_", Path(path).stem).strip("._")[:60] or "audio"
     return stem, Path(path).suffix.lower()
+
+
+def pretty_title(job) -> str:
+    """Nome legível para os downloads: "A Little Piece of Heaven - estilo Note Block".
+
+    Tira o hash que o app põe no nome do arquivo enviado (-1a2b3c4d), extensões e "_".
+    """
+    stem = job.result.wav.stem if job.result else Path(job.source).stem
+    stem = stem.split(".")[0]  # "<nome>.mix.noteblock" -> "<nome>"
+    stem = re.sub(r"-[0-9a-f]{8}$", "", stem).replace("_", " ").strip() or "melodia"
+    return f"{stem} - {job.variant}" if job.variant else stem
 
 
 def profile_payload(p: Profile) -> dict:
@@ -162,7 +226,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
                 raise HTTPException(422, "não consegui ler o áudio gravado") from None
             except ValueError as e:
                 raise HTTPException(422, str(e)) from None
-        return str(dest), ext in MIDI_EXTS
+        return str(dest), ext in NOTE_EXTS
 
     def check_span(start: float, end: float | None) -> None:
         if start < 0 or (end is not None and end - start < 1):
@@ -192,29 +256,29 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         start: float = Form(0.0),
         end: float | None = Form(None),
         is_recording: bool = Form(False, alias="recording"),  # o arquivo veio do microfone
-        voice: bool = Form(False),  # uma voz só (cantarolar): frequência exata, sem variações
+        methods: str = Form(""),  # formas de conversão, separadas por vírgula (vazio = padrão)
+        voice: bool = Form(False),  # atalho antigo para methods=exact
         file: UploadFile | None = File(None),  # noqa: B008
     ):
-        """Gera todas as variações de uma vez: um job por stem (áudio) ou por modo de trilha (.mid)."""
+        """Gera todas as variações de uma vez: stems x formas de conversão (áudio) ou modos de
+        trilha x formas (.mid/.nbs)."""
         wanted = list(dict.fromkeys(s.strip() for s in stems.split(",") if s.strip()))
         if any(s not in STEM_CHOICES for s in wanted) or (not wanted):
             raise HTTPException(422, f"stems inválidos: {stems}")
         check_span(start, end)
         source, is_midi = await save_source(url, file, is_recording)
         batch_id = uuid.uuid4().hex
-        # .mid não tem stem: as variações são o modo de trilha (automático x todas misturadas)
-        plan = (
-            [("mix", None, "trilhas automáticas"), ("mix", -1, "todas as trilhas")]
-            if is_midi
-            else [(s, None, s) for s in wanted]
-        )
-        if voice:
-            if is_midi:
-                raise HTTPException(422, "o modo voz é para áudio, não .mid")
-            plan = [("mix", None, "voz (afinação exata)")]
+        chosen = list(dict.fromkeys(m.strip() for m in methods.split(",") if m.strip()))
+        if voice:  # atalho antigo: a voz gravada vira uma variação só
+            chosen, wanted = ["exact"], ["mix"]
+        if any(m not in (*METHOD_CHOICES, "all") for m in chosen):
+            raise HTTPException(422, f"formas de conversão inválidas: {methods}")
+        if not chosen:  # padrão de antes: transcrição (+ todas as trilhas em .mid/.nbs)
+            chosen = ["melody", "all"] if is_midi else ["melody"]
+        plan = batch_plan(is_midi, wanted, chosen)
         made = [
-            jobs.submit(source, s, p, start, end, batch_id, label, voice=voice)
-            for s, p, label in plan
+            jobs.submit(source, s, p, start, end, batch_id, label, method=m)
+            for s, p, m, label in plan
         ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
 
@@ -235,7 +299,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         if body.part == -1:
             label = "todas as trilhas"
         return jobs.submit(
-            job.origin, job.stem, body.part, job.start, job.end, job.batch, label
+            job.origin, job.stem, body.part, job.start, job.end, job.batch, label, job.method
         ).to_dict()
 
     @app.get("/api/jobs/{job_id}")
@@ -276,7 +340,9 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             if download:
                 record_edit(job)
             return FileResponse(
-                mp3, media_type="audio/mpeg", filename=mp3.name if download else None
+                mp3,
+                media_type="audio/mpeg",
+                filename=f"{pretty_title(job)}.mp3" if download else None,
             )
         if which == "result" and speed != 1.0:
             if not 0.5 <= speed <= 2.0:
@@ -284,7 +350,8 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             path = render_speed(job, path, speed)
         if download and which == "result":
             record_edit(job)
-        return FileResponse(path, filename=path.name if download else None)
+        name = f"{pretty_title(job)}.wav" if which == "result" else path.name
+        return FileResponse(path, filename=name if download else None)
 
     @app.get("/api/jobs/{job_id}/midi")
     def job_midi(job_id: str):
@@ -294,7 +361,23 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(404, "MIDI indisponível")
         record_edit(job)
         midi = job.result.midi
-        return FileResponse(midi, media_type="audio/midi", filename=midi.name)
+        return FileResponse(midi, media_type="audio/midi", filename=f"{pretty_title(job)}.mid")
+
+    @app.get("/api/jobs/{job_id}/nbs")
+    def job_nbs(job_id: str):
+        """.nbs (Minecraft) das notas atuais: harpa, 25 notas, 10 tiques por segundo."""
+        job = jobs.get(job_id)
+        if job is None or job.result is None:
+            raise HTTPException(404, "notas indisponíveis")
+        record_edit(job)
+        r = job.result
+        out = r.wav.with_suffix(".nbs")
+        with edit_lock:
+            current = notes_mod.load(r.notes_file)["current"]
+            write_nbs(out, notes_mod.to_segments(current), pretty_title(job))
+        return FileResponse(
+            out, media_type="application/octet-stream", filename=f"{pretty_title(job)}.nbs"
+        )
 
     def record_edit(job) -> bool:
         """Registra no feedback o diff gerado x final (uma vez por estado das notas)."""
@@ -442,8 +525,8 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         """Exporta a gravação do soundpad (com acordes) como WAV/MID/MP3 pela render do pipeline."""
         import tempfile
 
-        if body.format not in ("wav", "mid", "mp3"):
-            raise HTTPException(422, "formato deve ser wav, mid ou mp3")
+        if body.format not in ("wav", "mid", "mp3", "nbs"):
+            raise HTTPException(422, "formato deve ser wav, mid, mp3 ou nbs")
         try:
             p = load_profile(data_dir / "device.json")
             lo_hz, hi_hz, heard = p.min_hz, p.max_hz, p.notes
@@ -469,6 +552,8 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             out = Path(tmp) / f"soundpad.{body.format}"
             if body.format == "mid":
                 write_midi(out, notes_mod.to_segments(notes))  # um evento por nota
+            elif body.format == "nbs":
+                write_nbs(out, notes_mod.to_segments(notes), "soundpad")
             else:
                 wav = out if body.format == "wav" else Path(tmp) / "soundpad.wav"
                 write_mono_wav(wav, render(notes_mod.to_chords(notes), *rng, PEAK_DB), RATE)
@@ -478,7 +563,12 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
                     except FfmpegError as e:
                         raise HTTPException(500, str(e)) from None
             data = out.read_bytes()
-        mime = {"wav": "audio/wav", "mid": "audio/midi", "mp3": "audio/mpeg"}[body.format]
+        mime = {
+            "wav": "audio/wav",
+            "mid": "audio/midi",
+            "mp3": "audio/mpeg",
+            "nbs": "application/octet-stream",
+        }[body.format]
         return Response(
             data,
             media_type=mime,
@@ -500,6 +590,40 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(422, "a faixa precisa ter pelo menos 1 oitava (máx >= 2x mín)")
         save_profile(profile, data_dir / "device.json")
         return profile_payload(profile)
+
+    @app.get("/api/nbs-songs/search")
+    def nbs_songs_search(q: str = "", page: int = 0):
+        try:
+            return nbssongs.search(q, page)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(
+                502, "não consegui consultar o acervo de note block agora"
+            ) from None
+
+    @app.post("/api/nbs-songs/generate")
+    def nbs_songs_generate(body: NbsSongIn):
+        """Baixa a música do acervo (MC Utils / GitHub) e gera as variações, como um .nbs enviado."""
+        try:
+            data = nbssongs.download(body.name)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui baixar a música agora") from None
+        name, _ = safe_name(Path(body.name).stem + ".nbs")
+        dest = data_dir / "input" / f"{name}-{hashlib.sha1(data).hexdigest()[:8]}.nbs"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        chosen = [m.strip() for m in body.methods.split(",") if m.strip()]
+        if any(m not in (*METHOD_CHOICES, "all") for m in chosen):
+            raise HTTPException(422, f"formas de conversão inválidas: {body.methods}")
+        batch_id = uuid.uuid4().hex
+        made = [
+            jobs.submit(str(dest), s, p, 0.0, None, batch_id, label, method=m)
+            for s, p, m, label in batch_plan(True, ["mix"], chosen or ["melody"])
+        ]
+        return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
 
     @app.get("/api/scores/featured")
     def scores_featured():

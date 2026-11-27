@@ -69,11 +69,11 @@ def test_voice_recording_is_one_exact_pitch_job(tmp_path):
         data={"stems": "mix,other,vocals", "recording": "true", "voice": "true"},
         files={"file": ("g.webm", tone(tmp_path / "a.wav").read_bytes())},
     )
-    assert [j["variant"] for j in r.json()["jobs"]] == ["voz (afinação exata)"]
+    assert [j["variant"] for j in r.json()["jobs"]] == ["afinação exata"]
     import time
 
     for _ in range(100):
         if seen:
             break
         time.sleep(0.05)
-    assert seen and seen[0].get("voice") is True
+    assert seen and seen[0].get("method") == "exact"

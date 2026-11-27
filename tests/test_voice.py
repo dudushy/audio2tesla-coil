@@ -69,7 +69,7 @@ def test_pipeline_voice_mode_keeps_low_voice_in_place(tmp_path):
 
     wav = sung(tmp_path / "low.wav", [(44, 0.7), (None, 0.1), (47, 0.7), (49, 0.7)], vibrato=0.1)
     profile = profile_from_notes(list(range(27, 104)))  # faixa larga, como a calibragem real
-    r = process(str(wav), tmp_path, profile, "mix", voice=True)
+    r = process(str(wav), tmp_path, profile, "mix", method="exact")
     import json
 
     pitches = [n["pitch"] for n in json.loads(r.notes_file.read_text())["current"]]
