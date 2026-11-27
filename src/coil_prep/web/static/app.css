@@ -167,7 +167,21 @@ code { overflow-wrap:anywhere; }
 
 /* acervo de note block */
 ul.songs { list-style:none; padding:0; margin:8px 0; }
-ul.songs li { display:flex; align-items:center; gap:10px; padding:4px 0; border-bottom:1px solid var(--line); }
+ul.songs li { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:4px 0; border-bottom:1px solid var(--line); }
 ul.songs li span { flex:1; }
 ul.songs button { min-height:40px; min-width:44px; padding:4px 10px; }
 h3 { font-size:1rem; margin:12px 0 6px; }
+
+/* busca única */
+.search-all label { margin-top:0; }
+.search-all button.primary-inline { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+.card.source { padding:12px; }
+.source-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.source-head h3 { margin:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.source-head h3 a { color:var(--fg); }
+.card.source .about { margin:2px 0 4px; font-size:.85rem; }
+ul.songs li span { display:flex; flex-direction:column; min-width:0; }
+ul.songs li span b { font-weight:600; overflow-wrap:anywhere; }
+ul.songs li small { font-size:.8rem; }
+.card.source .more { width:100%; margin-top:6px; }
+.moves { display:flex; flex-wrap:wrap; gap:6px; width:100%; padding:4px 0 4px 54px; }

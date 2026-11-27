@@ -11,6 +11,18 @@
 <main class="wide">
   <h1>Partituras</h1>
   <p class="sub">A melodia vem das notas do arquivo (sem separar áudio) e é ajustada às notas <a href="/calibrate">calibradas</a> da bobina.</p>
+  <form id="all" class="card search-all" role="search">
+    <label for="all-q">Buscar em todos os acervos</label>
+    <div class="row">
+      <input id="all-q" type="search" placeholder="música, artista, jogo ou compositor" autocomplete="off" style="flex:3">
+      <button type="submit" class="primary-inline">Buscar</button>
+    </div>
+    <div class="toolbar" id="all-chips" aria-label="Sugestões"></div>
+    <p class="muted" style="margin:4px 0 0">Procura de uma vez em MIDIs (Lakh, MIDIWorld, BitMidi), partituras clássicas (Mutopia) e músicas de Minecraft (MC Utils, Note Block World). ▶ baixa e gera as variações; ↗ abre o site quando ele não permite baixar automaticamente.</p>
+  </form>
+  <div id="all-results" aria-live="polite"></div>
+
+  <h2 style="margin-top:24px">Explorar por categoria</h2>
   <div class="tabs" role="group" aria-label="Tipo de música">
     <button type="button" id="tab-hits" aria-pressed="true">Pop e rock</button>
     <button type="button" id="tab-pop" aria-pressed="false">Jogos e Minecraft</button>
@@ -304,6 +316,123 @@ window.addEventListener("drop", (e) => {
   e.preventDefault(); $("drop").classList.remove("over");
   sendMidi(e.dataTransfer.files[0]);
 });
+
+// --- busca única em todos os acervos ---------------------------------------------------------
+let allQuery = "";
+function actionButton(item) {
+  const a = item.action, b = el("button", "act");
+  b.type = "button";
+  if (a.type === "link") {
+    b.textContent = "↗"; b.title = "Abrir no site (baixe e envie em Gerar)";
+    b.setAttribute("aria-label", "Abrir " + item.title + " no site");
+    b.onclick = () => window.open(a.url, "_blank", "noopener");
+  } else {
+    b.textContent = "▶"; b.title = a.type === "movements" ? "Escolher o movimento" : "Baixar e gerar";
+    b.setAttribute("aria-label", "Gerar " + item.title);
+    b.onclick = () => (a.type === "movements" ? pickMovement(item, b) : runAction(a.endpoint, a.body, item.title, b));
+  }
+  return b;
+}
+async function runAction(endpoint, body, title, btn) {
+  if (busy) return;
+  busy = true; if (btn) btn.disabled = true;
+  showStatus(`Baixando "${title}"...`);
+  try {
+    const b = await postJSON(endpoint, body);
+    location.href = "/?batch=" + b.id;
+  } catch (e) { showStatus(e.message, true); busy = false; if (btn) btn.disabled = false; }
+}
+async function pickMovement(item, btn) {
+  btn.disabled = true;
+  try {
+    const data = await getJSON(`/api/scores/movements?file=${encodeURIComponent(item.action.file)}`);
+    const box = el("div", "moves");
+    for (const m of data.members) {
+      const b = el("button", "", "▶ " + m.replace(/\.midi?$/i, ""));
+      b.type = "button";
+      b.onclick = () => runAction("/api/scores/generate", { file: item.action.file, member: m, title: `${item.title} ${m.replace(/\.midi?$/i, "")}` }, item.title, b);
+      box.appendChild(b);
+    }
+    btn.closest("li").appendChild(box);
+  } catch (e) { showStatus(e.message, true); btn.disabled = false; }
+}
+function resultRow(item) {
+  const li = el("li"), text = el("span");
+  text.appendChild(el("b", "", item.title));
+  const extra = [item.subtitle, item.detail].filter(Boolean).join(" · ");
+  if (extra) text.appendChild(el("small", "muted", extra));
+  li.append(actionButton(item), text);
+  return li;
+}
+function sourceCard(src) {
+  const card = el("section", "card source");
+  card.dataset.source = src.id;
+  const head = el("div", "source-head"), title = el("h3"), link = el("a", "", src.label);
+  link.href = src.url; link.target = "_blank"; link.rel = "noopener noreferrer";
+  title.append(link, el("span", "badge", src.kind));
+  const count = el("span", "muted count");
+  head.append(title, count);
+  card.append(head, el("p", "muted about", src.about));
+  const list = el("ul", "songs");
+  card.appendChild(list);
+  const more = el("button", "more hidden", "Mais resultados desta fonte");
+  more.type = "button";
+  card.appendChild(more);
+  let page = 0;
+  const fill = (data) => {
+    for (const item of data.results) list.appendChild(resultRow(item));
+    const shown = list.children.length;
+    count.textContent = data.total ? `${shown} de ${data.total}` : `${shown}${data.has_next ? "+" : ""}`;
+    more.classList.toggle("hidden", !data.has_next);
+  };
+  more.onclick = async () => {
+    more.disabled = true; more.textContent = "Carregando…";
+    try {
+      const r = await getJSON(`/api/library/search?q=${encodeURIComponent(allQuery)}&source=${src.id}&page=${page + 1}`);
+      page += 1; fill(r.sources[0]);
+    } catch (e) { showStatus(e.message, true); }
+    more.disabled = false; more.textContent = "Mais resultados desta fonte";
+  };
+  fill(src);
+  return card;
+}
+async function searchAll(q) {
+  allQuery = q;
+  const box = $("all-results");
+  box.textContent = "";
+  const wait = el("p", "muted");
+  wait.append(el("span", "spin"), document.createTextNode("Buscando em 6 acervos..."));
+  box.appendChild(wait);
+  try {
+    const data = await getJSON(`/api/library/search?q=${encodeURIComponent(q)}`);
+    box.textContent = "";
+    const found = data.sources.filter((s) => s.results.length);
+    const empty = data.sources.filter((s) => !s.results.length && !s.error);
+    const failed = data.sources.filter((s) => s.error);
+    const total = found.reduce((n, s) => n + s.results.length, 0);
+    box.appendChild(el("p", "muted", total
+      ? `${total} resultado(s) em ${found.length} acervo(s) para "${q}".`
+      : `Nada encontrado para "${q}". Tente o nome em inglês, só o artista ou outro termo.`));
+    for (const s of found) box.appendChild(sourceCard(s));
+    if (empty.length) box.appendChild(el("p", "muted", "Sem resultados em: " + empty.map((s) => s.label).join(", ") + "."));
+    if (failed.length) box.appendChild(el("p", "warn", "Fora do ar agora: " + failed.map((s) => `${s.label} (${s.error})`).join("; ") + "."));
+  } catch (e) { box.textContent = ""; box.appendChild(el("p", "error", e.message)); }
+}
+$("all").onsubmit = (e) => {
+  e.preventDefault();
+  const q = $("all-q").value.trim();
+  if (q) { history.replaceState(null, "", "?q=" + encodeURIComponent(q)); searchAll(q); }
+};
+for (const q of ["Mario", "Zelda", "Queen", "ABBA", "Megalovania", "Pokemon", "Beethoven", "Tetris"]) {
+  const b = el("button", "", q);
+  b.type = "button";
+  b.onclick = () => { $("all-q").value = q; $("all").requestSubmit(); };
+  $("all-chips").appendChild(b);
+}
+{
+  const q0 = new URLSearchParams(location.search).get("q");
+  if (q0) { $("all-q").value = q0; searchAll(q0); }
+}
 
 window.addEventListener("pageshow", () => { busy = false; $("status").className = "hidden"; });
 getJSON("/api/scores/featured").then((d) => { for (const p of d.results) $("featured").appendChild(card(p)); })

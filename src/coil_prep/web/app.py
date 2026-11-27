@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import bitmidi, feedback, lakh, nbssongs, recording, scores
+from .. import bitmidi, feedback, lakh, library, midiworld, nbssongs, recording, scores
 from .. import notes as notes_mod
 from ..calibrate import write_mono_wav
 from ..fetch import is_url
@@ -130,6 +130,13 @@ class NbsSongIn(BaseModel):
 
 class LakhIn(BaseModel):
     path: str  # "Artista/Título.mid" do índice (ver lakh.index)
+    methods: str = "melody,all"
+
+
+class MidiWorldIn(BaseModel):
+    id: int
+    title: str = ""
+    artist: str = ""
     methods: str = "melody,all"
 
 
@@ -635,6 +642,26 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             for s, p, m, label in batch_plan(True, ["mix"], chosen or ["melody"])
         ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
+
+    @app.get("/api/library/search")
+    def library_search(q: str, source: str | None = None, page: int = 0):
+        """Busca única: todos os acervos de uma vez (ou uma fonte, para ver mais páginas)."""
+        try:
+            return library.search(q, source, page)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/midiworld/generate")
+    def midiworld_generate(body: MidiWorldIn):
+        """Baixa o .mid do MIDIWorld e gera as variações."""
+        try:
+            data = midiworld.download(body.id)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except OSError:
+            raise HTTPException(502, "não consegui baixar a música agora") from None
+        title = " - ".join(x for x in (body.artist.strip(), body.title.strip()) if x)
+        return notes_batch(data, title[:80] or f"midiworld {body.id}", ".mid", body.methods)
 
     @app.get("/api/lakh/search")
     def lakh_search(q: str, page: int = 0):
