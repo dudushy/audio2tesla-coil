@@ -103,3 +103,19 @@ def test_midiworld_generate_endpoint(monkeypatch, tmp_path):
     assert job["source"].startswith("ABBA_-_Dancing_Queen-")
     assert wait_done(client, job["id"])["status"] == "done"
     assert client.get("/api/library/search?q=").status_code == 422
+
+
+def test_batch_with_separators_skips_identical_combinations(tmp_path):
+    from coil_prep.web.app import batch_plan
+
+    plan = batch_plan(
+        False, ["vocals", "other", "piano", "mix"], ["melody"], ("demucs", "roformer")
+    )
+    got = [(s, sep, label) for s, _, _, sep, label in plan]
+    assert got == [
+        ("vocals", "demucs", "vocals · Demucs"),
+        ("vocals", "roformer", "vocals · RoFormer"),
+        ("other", "demucs", "other · Demucs"),  # RoFormer não separa "other": sairia igual
+        ("piano", "demucs", "piano · Demucs"),
+        ("mix", "demucs", "mix"),
+    ]

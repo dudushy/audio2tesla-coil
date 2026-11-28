@@ -64,6 +64,8 @@
         <div class="checks methods" id="methods" role="group" aria-labelledby="methods-label">
           <label><input type="checkbox" value="melody" checked> <span><b>Transcrição de notas</b><small>reconhece as notas da música e encaixa no ritmo (padrão)</small></span></label>
           <label><input type="checkbox" value="exact"> <span><b>Afinação exata</b><small>uma voz ou instrumento solo, na frequência em que foi tocado (só áudio)</small></span></label>
+          <label><input type="checkbox" value="vocalpitch"> <span><b>Voz da música (RMVPE)</b><small>mede a melodia cantada direto na música, na afinação em que foi cantada (só áudio; 1ª vez baixa 362 MB)</small></span></label>
+          <label><input type="checkbox" value="mt3"> <span><b>YourMT3+</b><small>transcrição de vários instrumentos mais precisa que a padrão, porém lenta em CPU (só áudio; 1ª vez baixa 536 MB)</small></span></label>
           <label><input type="checkbox" value="noteblock"> <span><b>Estilo Note Block (Minecraft)</b><small>uma batida por tique (0,1 s), nas 25 notas do note block</small></span></label>
           <label><input type="checkbox" value="all" checked> <span><b>Todas as trilhas misturadas</b><small>só para .mid e .nbs: mistura as trilhas em vez de escolher a melodia</small></span></label>
         </div>
@@ -71,8 +73,17 @@
         <div class="checks" id="stems" role="group" aria-labelledby="stems-label">
           <label><input type="checkbox" value="other" checked> other · melodia em sintes</label>
           <label><input type="checkbox" value="vocals" checked> vocals · voz cantada</label>
+          <label><input type="checkbox" value="piano"> piano</label>
+          <label><input type="checkbox" value="guitar"> guitar · guitarra/violão</label>
           <label><input type="checkbox" value="mix" checked> mix · sem separar</label>
         </div>
+        <label id="seps-label">Separador das partes</label>
+        <div class="checks methods" id="seps" role="group" aria-labelledby="seps-label">
+          <label><input type="checkbox" value="demucs" checked> <span><b>Demucs</b><small>rápido (~1 min por música de 3 min neste PC)</small></span></label>
+          <label><input type="checkbox" value="demucs_hq"> <span><b>Demucs fino</b><small>4 modelos afinados: menos vazamento, ~4x mais lento</small></span></label>
+          <label><input type="checkbox" value="roformer"> <span><b>RoFormer (voz)</b><small>o melhor para isolar a voz; nas outras partes usa o Demucs (1ª vez baixa ~0,9 GB)</small></span></label>
+        </div>
+        <p class="muted" style="margin:2px 0 0">Piano e guitarra usam sempre o Demucs de 6 partes (a separação de piano é a mais fraca).</p>
         <p class="muted" style="margin:2px 0 0">Cada parte marcada é gerada em cada forma de conversão marcada. Em .mid e .nbs não há partes: "Transcrição" usa as trilhas automáticas.</p>
         <label for="t-start">Trecho (opcional)</label>
         <div class="row">
@@ -88,6 +99,7 @@
 
   <section id="batch" class="hidden" aria-labelledby="batch-h">
     <h2 id="batch-h">Variações <span id="batch-src" class="muted" style="font-weight:400"></span></h2>
+    <div class="toolbar"><span id="batch-count" class="muted"></span><button type="button" id="cancel" class="hidden">Cancelar o que falta</button></div>
     <div id="grid" class="grid"></div>
     <p class="muted">Ouça cada uma, avalie com 👍/👎 e abra a melhor no editor. As avaliações ensinam o app a sugerir o melhor som (★).</p>
   </section>
@@ -97,23 +109,36 @@
 let mode = "url", timer = null, batchId = null, tags = [], suggestion = null, ratings = 0;
 const cards = new Map();  // job id -> {el, status}
 
-const boxes = () => [...document.querySelectorAll("#stems input, #methods input")];
+const boxes = () => [...document.querySelectorAll("#stems input, #methods input, #seps input")];
 const picked = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((c) => c.value);
 let saved = null;  // marcações de antes de ir para a gravação
 // cantarolar é uma voz só: afinação exata, sem separar; música tocando segue as opções de um link
 function optionsForKind() {
   const hum = document.querySelector("input[name=kind]:checked").value === "hum";
-  for (const c of document.querySelectorAll("#stems input")) c.checked = !hum || c.value === "mix";
+  const stems = hum ? ["mix"] : ["other", "vocals", "mix"];
+  for (const c of document.querySelectorAll("#stems input")) c.checked = stems.includes(c.value);
+  for (const c of document.querySelectorAll("#seps input")) c.checked = c.value === "demucs";
   for (const c of document.querySelectorAll("#methods input")) c.checked = hum ? c.value === "exact" : c.value === "melody";
   countVariations();
 }
 const isNotesFile = () => mode === "file" && /\.(midi?|nbs)$/i.test(($("file").files[0] || {}).name || "");
 // mostra no botão quantas variações serão geradas
+const AUDIO_ONLY = ["exact", "vocalpitch", "mt3"];
+// mesmo modelo = mesmo resultado (como no servidor): conta só as combinações diferentes
+function modelFor(stem, sep) {
+  if (stem === "mix") return "none";
+  if (stem === "piano" || stem === "guitar") return "6s";
+  if (sep === "roformer") return stem === "vocals" ? "roformer" : "demucs";
+  return sep;
+}
 function countVariations() {
-  const methods = picked("methods"), stems = picked("stems");
-  const n = isNotesFile()
-    ? methods.filter((m) => m !== "exact").length
-    : stems.length * methods.filter((m) => m !== "all").length;
+  const methods = picked("methods"), stems = picked("stems"), seps = picked("seps");
+  let n;
+  if (isNotesFile()) n = methods.filter((m) => !AUDIO_ONLY.includes(m)).length;
+  else {
+    const combos = new Set(stems.flatMap((s) => seps.map((sep) => s + ":" + modelFor(s, sep))));
+    n = combos.size * methods.filter((m) => m !== "all").length;
+  }
   $("go").textContent = n > 1 ? `Gerar ${n} variações` : "Gerar";
   return n;
 }
@@ -268,19 +293,38 @@ $("form").addEventListener("submit", async (ev) => {
   }
   if (stems.length) fd.append("stems", stems.join(","));
   fd.append("methods", methods.join(","));
+  const seps = picked("seps");
+  if (!seps.length) { showStatus("Marque pelo menos um separador.", true); return; }
+  fd.append("separators", seps.join(","));
   if (mode === "mic") {
     if (!recorded) { showStatus("Grave um áudio primeiro.", true); return; }
     fd.append("file", recorded);
     fd.append("recording", "true");
   } else if (mode === "url") fd.append("url", $("url").value);
   else if ($("file").files[0]) fd.append("file", $("file").files[0]);
+  const n = countVariations();
+  if (n > 12 && !confirm(`Gerar ${n} variações? Cada uma separa e transcreve a música de novo: numa música inteira, com YourMT3+, RoFormer ou Demucs fino, isso leva bem mais de uma hora. Elas aparecem uma a uma, e o computador fica ocupado até o fim.`)) return;
   $("go").disabled = true;
   showStatus("Enviando...");
   try {
     const b = await getJSON("/api/batches", { method: "POST", body: fd });
     $("status").className = "hidden";
     openBatch(b.id, b.jobs);
-  } catch (e) { showStatus(e.message || "Não consegui falar com o servidor.", true); }
+  } catch (e) {
+    // a resposta pode ter se perdido depois de o lote ser criado: procura um lote recém-criado
+    let found = null;
+    if (e.network) {
+      for (let i = 0; i < 5 && !found; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const r = await getJSON("/api/batches");
+          found = r.batches.find((x) => r.now - x.created < 120);  // relógio do servidor
+        } catch (_) { /* ainda sem conexão */ }
+      }
+    }
+    if (found) { $("status").className = "hidden"; const b = await getJSON(`/api/batches/${found.id}`); openBatch(b.id, b.jobs); }
+    else showStatus(e.message || "Não consegui falar com o servidor.", true);
+  }
   $("go").disabled = false;
 });
 
@@ -298,18 +342,30 @@ function openBatch(id, jobs) {
   poll();
 }
 
+let pollFails = 0;
 async function poll() {
   clearTimeout(timer);
   let b;
   try { b = await getJSON(`/api/batches/${batchId}`); }
   catch (e) {
-    // lote some quando o servidor reinicia (jobs ficam só em memória)
-    $("batch").classList.add("hidden");
-    $("new").open = true;
-    showStatus("Este lote não existe mais (o servidor reiniciou?). Gere de novo.", true);
+    if (e.status === 404) {  // lote some quando o servidor reinicia (jobs ficam só em memória)
+      $("batch").classList.add("hidden");
+      $("new").open = true;
+      showStatus("Este lote não existe mais (o servidor reiniciou?). Gere de novo.", true);
+      return;
+    }
+    // conexão caiu (tela bloqueada, wi-fi...): o servidor continua gerando; tenta de novo
+    pollFails += 1;
+    showStatus(`Conexão perdida; tentando de novo… (as variações continuam sendo geradas no computador)`, true);
+    timer = setTimeout(poll, Math.min(15000, 1000 * 2 ** Math.min(pollFails, 4)));
     return;
   }
+  if (pollFails) { pollFails = 0; $("status").className = "hidden"; }
   render(b.jobs);
+  const by = (s) => b.jobs.filter((j) => j.status === s).length;
+  const waiting = by("queued");
+  $("batch-count").textContent = `${by("done")} prontas · ${by("running") ? "1 gerando · " : ""}${waiting} na fila${by("error") ? ` · ${by("error")} com erro` : ""}${by("canceled") ? ` · ${by("canceled")} canceladas` : ""}`;
+  $("cancel").classList.toggle("hidden", !waiting);
   if (b.jobs.some((j) => j.status === "queued" || j.status === "running")) timer = setTimeout(poll, 1000);
 }
 
@@ -339,6 +395,7 @@ function fill(card, j) {
   const h = el("h3", "", j.variant || j.stem);
   if (ratings > 0 && suggestion && j.stem === suggestion && j.status !== "error") h.appendChild(badge("★ sugerida", "star"));
   card.appendChild(h);
+  if (j.status === "canceled") { card.appendChild(el("p", "muted", "Cancelada (não foi gerada).")); return; }
   if (j.status === "queued" || j.status === "running") {
     const p = el("p", "muted");
     p.appendChild(el("span", "spin"));
@@ -397,6 +454,16 @@ async function refreshState() {
   if (!st) return;
   tags = st.tags; suggestion = st.suggestion; ratings = st.ratings;
 }
+
+$("cancel").onclick = async () => {
+  if (!batchId || !confirm("Cancelar as variações que ainda não começaram? A que está sendo gerada agora termina.")) return;
+  try { await postJSON(`/api/batches/${batchId}/cancel`, {}); poll(); } catch (e) { showStatus(e.message, true); }
+};
+
+// voltou para a aba (tela desbloqueada): atualiza na hora em vez de esperar o próximo ciclo
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && batchId) poll();
+});
 
 (async () => {
   await refreshState();

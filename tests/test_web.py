@@ -574,3 +574,52 @@ def test_fractional_pitch_notes_can_be_saved(client, tmp_path):
     assert r.status_code == 200, r.text
     assert [n["pitch"] for n in r.json()["notes"]] == [57.3, 60]
     assert client.get(f"/api/jobs/{job['id']}/midi").content[:4] == b"MThd"
+
+
+def test_recent_batches_lets_the_page_recover_a_lost_response(client, tmp_path):
+    first = client.post("/api/batches", files={"file": ("a.mid", midi_bytes(tmp_path))}).json()
+    r = client.get("/api/batches").json()
+    assert r["batches"][0]["id"] == first["id"] and r["batches"][0]["jobs"] == 2
+    assert 0 <= r["now"] - r["batches"][0]["created"] < 60
+
+
+def test_cancel_batch_skips_queued_jobs(tmp_path):
+    import threading
+
+    from coil_prep.web.jobs import JobManager
+
+    gate, ran = threading.Event(), []
+
+    def slow(source, data_dir, profile, stem, progress=None, **kw):
+        ran.append(stem)
+        gate.wait(5)
+        raise ValueError("fim")
+
+    data = tmp_path / "data"
+    c = TestClient(create_app(data, JobManager(data, slow)))
+    b = c.post("/api/batches", data={"url": "https://a/b", "stems": "other,vocals,mix"}).json()
+    time.sleep(0.3)  # a 1ª variação já começou
+    assert c.post(f"/api/batches/{b['id']}/cancel").json() == {"canceled": 2}
+    gate.set()
+    wait_done(c, b["jobs"][0]["id"])
+    time.sleep(0.3)
+    status = [j["status"] for j in c.get(f"/api/batches/{b['id']}").json()["jobs"]]
+    assert status == ["error", "canceled", "canceled"] and ran == ["other"]
+    assert c.post("/api/batches/nada/cancel").status_code == 404
+
+
+def test_old_finished_jobs_are_forgotten_before_a_running_batch(tmp_path):
+    from coil_prep.web import jobs as jobs_mod
+
+    m = jobs_mod.JobManager(tmp_path, lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    old = jobs_mod.MAX_JOBS
+    jobs_mod.MAX_JOBS = 3
+    try:
+        first = [m.submit("https://a/b", "mix", batch="velho") for _ in range(2)]
+        time.sleep(0.5)  # terminam (com erro)
+        m._pool.submit(time.sleep, 1)  # segura a fila
+        new = [m.submit("https://a/b", "mix", batch="novo") for _ in range(3)]
+        assert all(m.get(j.id) for j in new)  # o lote novo inteiro continua
+        assert not any(m.get(j.id) for j in first)
+    finally:
+        jobs_mod.MAX_JOBS = old

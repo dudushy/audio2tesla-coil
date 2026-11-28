@@ -5,6 +5,7 @@ import json
 import os
 import re
 import threading
+import time
 import uuid
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -39,6 +40,7 @@ from ..profile import (
     profile_from_notes,
     save_profile,
 )
+from ..separate import SEPARATOR_CHOICES, model_for
 from .jobs import JobManager
 
 STATIC = Path(__file__).parent / "static"
@@ -82,14 +84,22 @@ METHOD_LABELS = {
     "melody": "transcrição",
     "exact": "afinação exata",
     "noteblock": "estilo Note Block",
+    "vocalpitch": "voz da música (RMVPE)",
+    "mt3": "YourMT3+",
 }
 
 
-def batch_plan(is_notes: bool, stems: list[str], methods: list[str]) -> list[tuple]:
-    """(stem, trilha, forma de conversão, rótulo) de cada variação de um lote.
+SEPARATOR_LABELS = {"demucs": "Demucs", "demucs_hq": "Demucs fino", "roformer": "RoFormer"}
 
-    Áudio: cada stem x cada forma. Arquivo de notas (.mid/.nbs): "melody" vira trilhas
-    automáticas e "all" (todas as trilhas misturadas); "exact" não se aplica.
+
+def batch_plan(
+    is_notes: bool, stems: list[str], methods: list[str], separators: tuple = ("demucs",)
+) -> list[tuple]:
+    """(stem, trilha, forma de conversão, separador, rótulo) de cada variação de um lote.
+
+    Áudio: cada parte x cada forma x cada separador (variações que dariam o mesmo resultado,
+    como piano com dois separadores, saem uma vez só). Arquivo de notas (.mid/.nbs): "melody"
+    vira trilhas automáticas e "all" (todas as trilhas misturadas); "exact" não se aplica.
     """
     if is_notes:
         names = {
@@ -97,24 +107,38 @@ def batch_plan(is_notes: bool, stems: list[str], methods: list[str]) -> list[tup
             "all": [(-1, "melody", "todas as trilhas")],
             "noteblock": [(None, "noteblock", "estilo Note Block")],
         }
-        plan = [("mix", *x) for m in methods for x in names.get(m, [])]
+        plan = [("mix", p, m, "demucs", lb) for k in methods for p, m, lb in names.get(k, [])]
         if not plan:
             raise HTTPException(
                 422, "para .mid/.nbs escolha transcrição, todas as trilhas ou Note Block"
             )
         return plan
     methods = [m for m in methods if m != "all"]
-    if not methods:
+    if not methods:  # (exact, vocalpitch e mt3 só valem para áudio; .mid/.nbs ficou acima)
         raise HTTPException(422, "escolha pelo menos uma forma de conversão para áudio")
 
-    def label(stem: str, method: str) -> str:
-        if methods == ["melody"]:
-            return stem  # como antes: só o stem
-        if len(stems) == 1 and stem == "mix":
-            return METHOD_LABELS[method]
-        return f"{stem} · {METHOD_LABELS[method]}"
+    show_sep = list(separators) != ["demucs"]
 
-    return [(s, None, m, label(s, m)) for s in stems for m in methods]
+    def label(stem: str, method: str, sep: str) -> str:
+        if methods == ["melody"]:
+            text = stem  # como antes: só o stem
+        elif len(stems) == 1 and stem == "mix":
+            text = METHOD_LABELS[method]
+        else:
+            text = f"{stem} · {METHOD_LABELS[method]}"
+        return f"{text} · {SEPARATOR_LABELS[sep]}" if show_sep and stem != "mix" else text
+
+    plan, seen = [], set()
+    for s in stems:
+        for sep in separators:
+            # mesmo modelo = mesmo resultado: mix não separa; piano/guitarra só têm um modelo
+            key = (s, "none" if s == "mix" else model_for(s, sep))
+            for m in methods:
+                if (key, m) in seen:
+                    continue
+                seen.add((key, m))
+                plan.append((s, None, m, sep if s != "mix" else "demucs", label(s, m, sep)))
+    return plan
 
 
 class ProfileIn(BaseModel):
@@ -271,6 +295,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         end: float | None = Form(None),
         is_recording: bool = Form(False, alias="recording"),  # o arquivo veio do microfone
         methods: str = Form(""),  # formas de conversão, separadas por vírgula (vazio = padrão)
+        separators: str = Form("demucs"),  # separadores das partes, por vírgula
         voice: bool = Form(False),  # atalho antigo para methods=exact
         file: UploadFile | None = File(None),  # noqa: B008
     ):
@@ -289,12 +314,26 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
             raise HTTPException(422, f"formas de conversão inválidas: {methods}")
         if not chosen:  # padrão de antes: transcrição (+ todas as trilhas em .mid/.nbs)
             chosen = ["melody", "all"] if is_midi else ["melody"]
-        plan = batch_plan(is_midi, wanted, chosen)
+        seps = tuple(dict.fromkeys(x.strip() for x in separators.split(",") if x.strip()))
+        if not seps or any(x not in SEPARATOR_CHOICES for x in seps):
+            raise HTTPException(422, f"separadores inválidos: {separators}")
+        plan = batch_plan(is_midi, wanted, chosen, seps)
         made = [
-            jobs.submit(source, s, p, start, end, batch_id, label, method=m)
-            for s, p, m, label in plan
+            jobs.submit(source, s, p, start, end, batch_id, label, method=m, separator=sep)
+            for s, p, m, sep, label in plan
         ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
+
+    @app.get("/api/batches")
+    def recent_batches():
+        """Últimos lotes: a página reencontra um lote se a conexão caiu antes da resposta."""
+        return {"now": time.time(), "batches": jobs.recent_batches()}
+
+    @app.post("/api/batches/{batch_id}/cancel")
+    def cancel_batch(batch_id: str):
+        if not jobs.batch_jobs(batch_id):
+            raise HTTPException(404, "lote não encontrado")
+        return {"canceled": jobs.cancel_batch(batch_id)}
 
     @app.get("/api/batches/{batch_id}")
     def batch_status(batch_id: str):
@@ -313,7 +352,15 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         if body.part == -1:
             label = "todas as trilhas"
         return jobs.submit(
-            job.origin, job.stem, body.part, job.start, job.end, job.batch, label, job.method
+            job.origin,
+            job.stem,
+            body.part,
+            job.start,
+            job.end,
+            job.batch,
+            label,
+            job.method,
+            job.separator,
         ).to_dict()
 
     @app.get("/api/jobs/{job_id}")
@@ -639,7 +686,7 @@ def create_app(data_dir: Path, manager: JobManager | None = None) -> FastAPI:
         batch_id = uuid.uuid4().hex
         made = [
             jobs.submit(str(dest), s, p, 0.0, None, batch_id, label, method=m)
-            for s, p, m, label in batch_plan(True, ["mix"], chosen or ["melody"])
+            for s, p, m, _sep, label in batch_plan(True, ["mix"], chosen or ["melody"])
         ]
         return {"id": batch_id, "jobs": [j.to_dict() for j in made]}
 

@@ -20,13 +20,13 @@ from ..pipeline import (
 )
 from ..profile import load_profile
 
-MAX_JOBS = 50  # histórico em memória; os arquivos ficam no volume
+MAX_JOBS = 200  # histórico em memória (um lote grande tem dezenas); os arquivos ficam no volume
 
 
 @dataclass
 class Job:
     id: str
-    status: str = "queued"  # queued | running | done | error
+    status: str = "queued"  # queued | running | done | error | canceled
     message: str = "Na fila..."
     error: str | None = None
     result: Result | None = None
@@ -40,6 +40,7 @@ class Job:
     start: float = 0.0
     end: float | None = None
     method: str = "melody"  # forma de conversão (ver pipeline.METHOD_CHOICES)
+    separator: str = "demucs"  # separador das partes (ver separate.SEPARATOR_CHOICES)
     created: float = field(default_factory=lambda: __import__("time").time())
 
     def to_dict(self) -> dict:
@@ -103,6 +104,7 @@ class JobManager:
         batch: str = "",
         variant: str = "",
         method: str = "melody",
+        separator: str = "demucs",
     ) -> Job:
         label = source if is_url(source) else Path(source).name
         job = Job(
@@ -115,17 +117,48 @@ class JobManager:
             start=start,
             end=end,
             method=method,
+            separator=separator,
         )
         with self._lock:
             self._jobs[job.id] = job
-            while len(self._jobs) > MAX_JOBS:
-                self._jobs.popitem(last=False)
+            # esquece primeiro os mais antigos já terminados: um lote em andamento nunca some
+            finished = [
+                k for k, j in self._jobs.items() if j.status in ("done", "error", "canceled")
+            ]
+            for key in finished[: max(0, len(self._jobs) - MAX_JOBS)]:
+                del self._jobs[key]
         self._pool.submit(self._run, job, source, stem, part, start, end)
         return job
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def recent_batches(self, limit: int = 10) -> list[dict]:
+        """Lotes mais recentes primeiro: id, fonte, quando e quantos jobs em cada estado."""
+        with self._lock:
+            groups: dict[str, list[Job]] = {}
+            for j in self._jobs.values():
+                if j.batch:
+                    groups.setdefault(j.batch, []).append(j)
+        out = []
+        for bid, js in groups.items():
+            count: dict[str, int] = {}
+            for j in js:
+                count[j.status] = count.get(j.status, 0) + 1
+            out.append({"id": bid, "source": js[0].source, "created": min(j.created for j in js),
+                        "jobs": len(js), "status": count})  # fmt: skip
+        return sorted(out, key=lambda b: -b["created"])[:limit]
+
+    def cancel_batch(self, batch_id: str) -> int:
+        """Tira da fila as variações do lote que ainda não começaram (a que está rodando termina)."""
+        n = 0
+        with self._lock:
+            for j in self._jobs.values():
+                if j.batch == batch_id and j.status == "queued":
+                    j.status, j.message = "canceled", "Cancelada"
+                    n += 1
+        return n
 
     def batch_jobs(self, batch_id: str) -> list[Job]:
         with self._lock:
@@ -140,7 +173,10 @@ class JobManager:
         start: float = 0.0,
         end: float | None = None,
     ) -> None:
-        job.status = "running"
+        with self._lock:
+            if job.status == "canceled":
+                return
+            job.status = "running"
         try:
             try:
                 profile = load_profile(self.data_dir / "device.json")
@@ -152,6 +188,8 @@ class JobManager:
                 extra |= {"start": start, "end": end}
             if job.method != "melody":
                 extra |= {"method": job.method}
+            if job.separator != "demucs":
+                extra |= {"separator": job.separator}
             job.result = self.process_fn(
                 source,
                 self.data_dir,

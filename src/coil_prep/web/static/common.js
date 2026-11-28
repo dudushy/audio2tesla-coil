@@ -26,10 +26,21 @@ const noteName = (p) => { const r = Math.round(p); return NOTES[((r % 12) + 12) 
   document.body.prepend(nav);
 })();
 
+// erro de rede (conexão caiu, celular bloqueou a tela...) vem com .network; do servidor, com .status
 async function getJSON(url, opts) {
-  const res = await fetch(url, opts);
+  let res;
+  try { res = await fetch(url, opts); }
+  catch (e) {
+    const err = new Error("Sem conexão com o servidor (o computador está ligado e na mesma rede?).");
+    err.network = true;
+    throw err;
+  }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "erro " + res.status);
+  if (!res.ok) {
+    const err = new Error(typeof body.detail === "string" ? body.detail : "erro " + res.status);
+    err.status = res.status;
+    throw err;
+  }
   return body;
 }
 const putJSON = (url, data) => getJSON(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
