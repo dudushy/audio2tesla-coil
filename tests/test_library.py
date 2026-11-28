@@ -21,9 +21,9 @@ def test_midiworld_parse_splits_title_and_artist():
     r = midiworld.parse_search(MIDIWORLD_PAGE)
     assert r["has_next"]
     assert r["results"] == [
-        {"id": 29, "title": "Dancing Queen", "artist": "ABBA"},
-        {"id": 6745, "title": "Bohemian Rhapsody & more", "artist": "Queen"},
-        {"id": 7, "title": "Sem artista", "artist": ""},
+        {"id": 29, "title": "Dancing Queen", "artist": "ABBA", "broken": False},
+        {"id": 6745, "title": "Bohemian Rhapsody & more", "artist": "Queen", "broken": False},
+        {"id": 7, "title": "Sem artista", "artist": "", "broken": False},
     ]
 
 
@@ -119,3 +119,30 @@ def test_batch_with_separators_skips_identical_combinations(tmp_path):
         ("piano", "demucs", "piano · Demucs"),
         ("mix", "demucs", "mix"),
     ]
+
+
+def test_midiworld_broken_link_is_remembered_and_marked(monkeypatch):
+    import urllib.error
+
+    calls = []
+
+    def gone(url, limit):
+        calls.append(url)
+        if "/download/" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return MIDIWORLD_PAGE.encode()
+
+    monkeypatch.setattr(midiworld, "_get", gone)
+    midiworld._files.clear()
+    midiworld._broken.clear()
+    midiworld._cache.clear()
+    with pytest.raises(ValueError, match="link quebrado"):
+        midiworld.download(6745)
+    with pytest.raises(ValueError, match="link quebrado"):
+        midiworld.download(6745)
+    assert sum("/download/" in c for c in calls) == 1  # não tenta de novo
+    r = library._midiworld("queen", 0)
+    queen = next(i for i in r["results"] if i["subtitle"] == "Queen")
+    assert queen["action"]["type"] == "unavailable" and "indisponível" in queen["detail"]
+    assert r["results"][0]["action"]["type"] == "generate"
+    midiworld._broken.clear()

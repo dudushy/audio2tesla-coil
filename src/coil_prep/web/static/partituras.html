@@ -322,25 +322,42 @@ let allQuery = "";
 function actionButton(item) {
   const a = item.action, b = el("button", "act");
   b.type = "button";
-  if (a.type === "link") {
+  if (a.type === "unavailable") {
+    b.textContent = "✕"; b.disabled = true; b.title = a.reason;
+    b.setAttribute("aria-label", item.title + ": indisponível");
+  } else if (a.type === "link") {
     b.textContent = "↗"; b.title = "Abrir no site (baixe e envie em Gerar)";
     b.setAttribute("aria-label", "Abrir " + item.title + " no site");
     b.onclick = () => window.open(a.url, "_blank", "noopener");
   } else {
     b.textContent = "▶"; b.title = a.type === "movements" ? "Escolher o movimento" : "Baixar e gerar";
     b.setAttribute("aria-label", "Gerar " + item.title);
-    b.onclick = () => (a.type === "movements" ? pickMovement(item, b) : runAction(a.endpoint, a.body, item.title, b));
+    b.onclick = () => (a.type === "movements" ? pickMovement(item, b) : runAction(a.endpoint, a.body, item.title, b, item));
   }
   return b;
 }
-async function runAction(endpoint, body, title, btn) {
+async function runAction(endpoint, body, title, btn, item) {
   if (busy) return;
   busy = true; if (btn) btn.disabled = true;
   showStatus(`Baixando "${title}"...`);
   try {
     const b = await postJSON(endpoint, body);
     location.href = "/?batch=" + b.id;
-  } catch (e) { showStatus(e.message, true); busy = false; if (btn) btn.disabled = false; }
+  } catch (e) {
+    busy = false;
+    if (e.status === 422 && btn && item) {
+      // o acervo não tem mais o arquivo: marca na própria linha e sugere procurar em outro lugar
+      $("status").className = "hidden";
+      btn.textContent = "✕"; btn.title = e.message;
+      const li = btn.closest("li"), note = el("small", "error", e.message + ". ");
+      const other = el("a", "", `Procurar "${item.title}" nos outros acervos`);
+      other.href = "#"; other.onclick = (ev) => { ev.preventDefault(); $("all-q").value = item.title; $("all").requestSubmit(); };
+      note.appendChild(other);
+      li.querySelector("span").appendChild(note);
+      return;
+    }
+    showStatus(e.message, true); if (btn) btn.disabled = false;
+  }
 }
 async function pickMovement(item, btn) {
   btn.disabled = true;

@@ -86,8 +86,10 @@ def _midiworld(q: str, page: int) -> dict:
         {
             "title": s["title"],
             "subtitle": s["artist"],
-            "detail": "",
-            "action": {
+            "detail": "arquivo indisponível no site" if s["broken"] else "",
+            "action": {"type": "unavailable", "reason": midiworld.BROKEN}
+            if s["broken"]
+            else {
                 "type": "generate",
                 "endpoint": "/api/midiworld/generate",
                 "body": {"id": s["id"], "title": s["title"], "artist": s["artist"]},

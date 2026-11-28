@@ -10,6 +10,7 @@ import html
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -29,6 +30,8 @@ _lock = threading.Lock()
 _last = 0.0
 _cache: dict[tuple[str, int], tuple[float, dict]] = {}
 _files: dict[int, bytes] = {}
+_broken: set[int] = set()  # links que o próprio site devolve 404 (arquivo sumiu de lá)
+BROKEN = "o MIDIWorld não tem mais este arquivo (link quebrado no próprio site); tente outra versão ou outro acervo"
 
 
 def _get(url: str, limit: int) -> bytes:
@@ -55,7 +58,8 @@ def parse_search(page_html: str) -> dict:
         paren = re.fullmatch(r"(.+?)\s*\(([^()]+)\)", name)
         if paren:
             name, artist = paren[1], paren[2]
-        results.append({"id": int(m["id"]), "title": name, "artist": artist})
+        sid = int(m["id"])
+        results.append({"id": sid, "title": name, "artist": artist, "broken": sid in _broken})
     return {"results": results, "has_next": 'class="nomark">next' in page_html}
 
 
@@ -68,7 +72,7 @@ def search(query: str, page: int = 0) -> dict:
     key = (query.lower(), page)
     hit = _cache.get(key)
     if hit and time.monotonic() - hit[0] < TTL:
-        return hit[1]
+        return hit[1] | {"results": [r | {"broken": r["id"] in _broken} for r in hit[1]["results"]]}
     q = urllib.parse.urlencode({"q": query})
     url = f"{BASE}/search/?{q}" if page == 0 else f"{BASE}/search/{page + 1}/?{q}"
     data = parse_search(_get(url, MAX_HTML).decode("utf-8", "replace"))
@@ -81,8 +85,16 @@ def search(query: str, page: int = 0) -> dict:
 def download(song_id: int) -> bytes:
     if not isinstance(song_id, int) or song_id <= 0:
         raise ValueError("música inválida")
+    if song_id in _broken:
+        raise ValueError(BROKEN)
     if song_id not in _files:
-        data = _get(f"{BASE}/download/{song_id}", MAX_FILE)
+        try:
+            data = _get(f"{BASE}/download/{song_id}", MAX_FILE)
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 410):
+                _broken.add(song_id)
+                raise ValueError(BROKEN) from None
+            raise
         if not data.startswith(b"MThd"):
             raise ValueError("o arquivo baixado não é um MIDI")
         if len(_files) >= 30:
