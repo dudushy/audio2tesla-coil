@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 openssl \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 openssl git git-lfs ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Deno: o yt-dlp precisa de um runtime JavaScript externo para resolver os desafios do YouTube
@@ -41,6 +41,25 @@ e = p['optional-dependencies']; r = p['dependencies'] + e['midi-onnx'] \
     > /tmp/requirements.txt \
     && pip install -r /tmp/requirements.txt \
     && pip install --no-deps "basic-pitch==0.4.0"
+
+# 2b) Separação e transcrição mais fortes (só com WITH_SEPARATE=1, porque precisam do PyTorch):
+#   - audio-separator (Mel-Band RoFormer, voz): instalado sem as dependências que não usamos e
+#     que quebrariam o build (diffq precisa de compilador; onnx2torch puxaria outro PyTorch);
+#   - mt3-infer (YourMT3+), só com WITH_MT3=1. transformers fixo em 4.43.4: o código do YourMT3+
+#     usa model_parallel_utils (removido na 5.x) e a API do T5 de antes do cache_position (4.44+).
+#   O arquivo de restrições trava o torch/torchaudio/numpy já instalados: nada é trocado.
+#   Os modelos (RoFormer ~0,9 GB, YourMT3+ 536 MB, RMVPE 362 MB) baixam na 1ª vez, no volume /cache.
+ARG WITH_MT3=1
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "$WITH_SEPARATE" = "1" ]; then \
+      pip freeze | grep -iE '^(torch|torchaudio|numpy)==' > /tmp/constraints.txt \
+      && pip install --no-deps "audio-separator==0.48.0" \
+      && pip install -c /tmp/constraints.txt "beartype>=0.18.5,<0.19" ml_collections pydub \
+           "rotary-embedding-torch>=0.6.1,<0.7" "samplerate==0.1.0" "einops>=0.7" julius \
+      && if [ "$WITH_MT3" = "1" ]; then \
+           pip install -c /tmp/constraints.txt --extra-index-url "$TORCH_INDEX_URL" "mt3-infer==0.2.0" "transformers==4.43.4"; \
+         fi; \
+    fi
 
 # 3) Código do projeto: leve, as dependências já estão instaladas.
 COPY README.md ./

@@ -5,6 +5,7 @@ services:
       args:
         # opcionais: defina no shell ou em .env (veja o README)
         WITH_SEPARATE: ${WITH_SEPARATE:-1}
+        WITH_MT3: ${WITH_MT3:-1}  # 0 = sem o YourMT3+ (transformers; ~400 MB a menos)
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
         TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     ports:

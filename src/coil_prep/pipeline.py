@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from . import fidelity
+from . import fidelity, mt3, rmvpe
 from . import notes as notes_mod
 from .analysis import analyze
 from .calibrate import write_mono_wav
@@ -37,15 +37,22 @@ from .midi import (
 )
 from .noteblock import NOTE_EXTS, fft_notes, nbs_tick, noteblock_style, read_parts
 from .profile import Profile
-from .separate import separate
+from .separate import SEPARATOR_CHOICES, separate
 from .voice import voice_notes
 
-STEM_CHOICES = ("other", "vocals", "mix")  # "mix" = sem separação
+STEM_CHOICES = ("other", "vocals", "piano", "guitar", "mix")  # "mix" = sem separação
 STYLE_CHOICES = ("auto", *fidelity.PRESETS)
 # formas de converter: melody = transcrição de notas (áudio) / trilhas do arquivo (.mid, .nbs);
 # exact = frequência exata de uma voz ou instrumento solo (só áudio);
 # noteblock = como os conversores de Minecraft: uma batida por tique, nas 25 notas do note block
-METHOD_CHOICES = ("melody", "exact", "noteblock")  # "auto" = melhor score da busca duty x gate
+# vocalpitch = melodia cantada medida direto na música pelo RMVPE (só áudio)
+# mt3 = transcrição de vários instrumentos com o YourMT3+ (só áudio)
+METHOD_CHOICES = ("melody", "exact", "noteblock", "vocalpitch", "mt3")
+AUDIO_ONLY = ("exact", "vocalpitch", "mt3")
+KEEP_PITCH = (
+    "exact",
+    "vocalpitch",
+)  # altura medida na voz: nenhuma nota sai do lugar se cabe  # "auto" = melhor score da busca duty x gate
 PEAK_DB = -8.0  # nível que a bobina tocou bem (referência Mario)
 FALLBACK_RANGE = (100.0, 800.0)
 TRIM_PAD = 1.0  # s de áudio além do trecho pedido, de cada lado, para separar e transcrever
@@ -106,6 +113,7 @@ def process(
     start: float = 0.0,
     end: float | None = None,
     method: str = "melody",
+    separator: str = "demucs",
 ) -> Result:
     """`source` é URL http(s) ou caminho de áudio/.mid. Saída em workdir/output/<nome>.wav.
 
@@ -119,6 +127,8 @@ def process(
     """
     if method not in METHOD_CHOICES:
         raise ValueError(f"forma de conversão inválida: {method}")
+    if separator not in SEPARATOR_CHOICES:
+        raise ValueError(f"separador inválido: {separator}")
     if stem not in STEM_CHOICES:
         raise ValueError(f"stem inválido: {stem}")
     if style not in STYLE_CHOICES:
@@ -146,11 +156,16 @@ def process(
         original = trim_audio(original, start, end, workdir / "input")  # o que o usuário ouve
 
     origin = source_audio
-    if method == "exact" and is_midi:
-        raise ValueError("a frequência exata é para áudio, não para arquivo de notas")
+    if method in AUDIO_ONLY and is_midi:
+        raise ValueError(f"'{method}' é para áudio, não para arquivo de notas")
     if stem != "mix" and not is_midi:
-        progress(f"Isolando '{stem}' com Demucs (CPU, pode levar minutos na 1ª vez)...")
-        origin = separate(source_audio, stem, workdir / "separated")
+        engine = {"demucs": "Demucs", "demucs_hq": "Demucs fino", "roformer": "RoFormer"}[separator]
+        if stem in ("piano", "guitar"):
+            engine = "Demucs de 6 partes"
+        elif separator == "roformer" and stem != "vocals":
+            engine = "Demucs"
+        progress(f"Isolando '{stem}' com {engine} (CPU, pode levar minutos na 1ª vez)...")
+        origin = separate(source_audio, stem, workdir / "separated", separator)
 
     progress("Extraindo a melodia...")
     parts_info, chosen_part, bpm = (), None, None
@@ -184,9 +199,12 @@ def process(
         segments = skyline(drop_ghost_notes(notes), 1, 0.06, 0.02)
         if method == "noteblock":
             segments = noteblock_style(segments, nbs_tick(origin))
-    elif method in ("exact", "noteblock"):
+    elif method in ("exact", "noteblock", "vocalpitch"):
         if method == "exact":
             segments = voice_notes(origin)
+        elif method == "vocalpitch":
+            progress("Medindo a melodia cantada (RMVPE; 1ª vez baixa o modelo, 362 MB)...")
+            segments = rmvpe.voice_notes(origin)
         else:
             segments = noteblock_style(fft_notes(origin))
         notes = [Note(a, b, p[0]) for a, b, p in segments]
@@ -198,7 +216,11 @@ def process(
                 if min(b - pre, stop) - max(a - pre, 0.0) >= 0.03
             ]
     else:
-        notes = notes_from(origin)
+        if method == "mt3":
+            progress("Transcrevendo com o YourMT3+ (lento em CPU; 1ª vez baixa o modelo)...")
+            notes = mt3.transcribe_notes(origin)
+        else:
+            notes = notes_from(origin)
         segments = lead_line(notes)
         # transcrição de áudio: o ritmo sai torto (início das notas ±50 ms, notas quebradas ao
         # acaso); se a música tem pulso firme, as notas são encaixadas na grade dele
@@ -221,7 +243,7 @@ def process(
     segments = transpose(segments, shift)
     out_of_range = out_of_range_fraction(segments, min_hz, max_hz)
     shifted = segments
-    if out_of_range or method != "exact":  # voz dentro da faixa: nenhuma nota sai do lugar
+    if out_of_range or method not in KEEP_PITCH:  # voz dentro da faixa: nenhuma nota sai do lugar
         segments = contour_fold(segments, min_hz, max_hz, profile.notes if profile else ())
     moved = _moved_fraction(shifted, segments)
 
@@ -229,6 +251,8 @@ def process(
     suffix = f".t{chosen_part}" if chosen_part is not None and part is not None else ""
     if method != "melody":  # cada forma de conversão tem o próprio arquivo
         suffix += f".{method}"
+    if separator != "demucs" and stem != "mix" and not is_midi:
+        suffix += f".{separator}"
     if trimmed and is_midi:  # no áudio o trecho já está no nome do arquivo cortado
         suffix += f".{start:g}-{'fim' if end is None else format(end, 'g')}"
     out = workdir / "output" / f"{original.stem}.{stem}{suffix}.wav"  # um arquivo por stem/trilha
